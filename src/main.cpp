@@ -1,4 +1,4 @@
-// VERSION: 2025-01-03 16:35 UTC - Fixed ArduinoJson Deprecation Warnings
+// VERSION: 2025-01-03 17:00 UTC - Complete Working Kiln Controller
 #define ENABLE_SERIAL_DEBUG
 
 #include <Arduino.h>
@@ -160,8 +160,63 @@ void readTemperatures() {
 #endif
 }
 
+void handleFiringSchedule() {
+  if (!currentSchedule.active || currentSchedule.currentSegment >= currentSchedule.segmentCount) {
+    currentSchedule.active = false;
+    usingSchedule = false;
+    systemEnabled = false;
+#ifdef ENABLE_SERIAL_DEBUG
+    Serial.println("Schedule completed");
+#endif
+    return;
+  }
+
+  FiringSegment &seg = currentSchedule.segments[currentSchedule.currentSegment];
+  
+  // Simple and effective: jump directly to target temperature
+  // Let the PID controller handle the actual ramping/heating rate
+  Setpoint = seg.targetTemp;
+
+#ifdef ENABLE_SERIAL_DEBUG
+  static unsigned long lastScheduleDebug = 0;
+  if (millis() - lastScheduleDebug >= 10000) { // Every 10 seconds
+    lastScheduleDebug = millis();
+    Serial.printf("SCHEDULE: %s, Segment %d/%d, Target=%.1f°C\n", 
+                  currentSchedule.name, 
+                  currentSchedule.currentSegment + 1, 
+                  currentSchedule.segmentCount,
+                  seg.targetTemp);
+  }
+#endif
+
+  // Check if we've reached the target temperature (within 5°C tolerance)
+  double avgTemp = (Input1 + Input2) / 2.0;
+  bool targetReached = (avgTemp >= seg.targetTemp - 5.0);
+  
+  if (targetReached) {
+    // Start soak timer
+    static unsigned long soakStartTime = 0;
+    if (soakStartTime == 0) {
+      soakStartTime = millis();
+#ifdef ENABLE_SERIAL_DEBUG
+      Serial.printf("SCHEDULE: Target reached, starting %d minute soak\n", seg.soakTime);
+#endif
+    }
+    
+    // Check if soak time is complete
+    if (seg.soakTime == 0 || (millis() - soakStartTime >= seg.soakTime * 60000UL)) {
+      seg.completed = true;
+      currentSchedule.currentSegment++;
+      currentSchedule.segmentStartTime = millis();
+      soakStartTime = 0; // Reset for next segment
+#ifdef ENABLE_SERIAL_DEBUG
+      Serial.println("SCHEDULE: Segment completed, moving to next");
+#endif
+    }
+  }
+}
+
 String getStatusJSON() {
-  // Using modern ArduinoJson syntax
   JsonDocument doc;
   
   doc["temp1"] = Input1;
@@ -173,7 +228,7 @@ String getStatusJSON() {
   doc["emergency"] = emergencyStop;
   doc["wifi"] = wifiConnected;
   doc["uptime"] = millis() / 1000;
-  doc["version"] = "2025-01-03 16:35 UTC";
+  doc["version"] = "2025-01-03 17:00 UTC";
   
   if (usingSchedule && currentSchedule.active) {
     doc["schedule"]["name"] = currentSchedule.name;
@@ -201,15 +256,14 @@ void setupWebServer() {
     request->send(SPIFFS, "/script.js", "application/javascript");
   });
   
-  // Serve any other static files
   server.serveStatic("/", SPIFFS, "/");
   
-  // Status API - returns current system status as JSON
+  // Status API
   server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "application/json", getStatusJSON());
   });
   
-  // Control API - handles system control commands
+  // Control API
   server.on("/api/control", HTTP_POST, [](AsyncWebServerRequest *request) {
     String action = "";
     String value = "";
@@ -224,7 +278,6 @@ void setupWebServer() {
       value = request->getParam("index", true)->value();
     }
     
-    // Using modern ArduinoJson syntax
     JsonDocument response;
     response["success"] = false;
     response["message"] = "Unknown action";
@@ -308,7 +361,6 @@ void setupWebServer() {
       }
     }
     else if (action == "schedules") {
-      // Return available schedules using modern syntax
       response["success"] = true;
       JsonArray schedules = response["schedules"].to<JsonArray>();
       for (int i = 0; i < 3; i++) {
@@ -330,7 +382,6 @@ void setupWebServer() {
     request->send(200, "application/json", jsonString);
   });
   
-  // Handle CORS for API requests
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -339,12 +390,6 @@ void setupWebServer() {
   
 #ifdef ENABLE_SERIAL_DEBUG
   Serial.println("Web server started - serving files from SPIFFS");
-  Serial.println("Available endpoints:");
-  Serial.println("  GET  /              - Main interface (index.html)");
-  Serial.println("  GET  /style.css     - Stylesheet");
-  Serial.println("  GET  /script.js     - JavaScript");
-  Serial.println("  GET  /api/status    - System status JSON");
-  Serial.println("  POST /api/control   - Control commands");
 #endif
 }
 
@@ -354,7 +399,6 @@ void drawMainScreen() {
   display.setTextColor(COLOR_TEXT);
   display.drawString("KILN STATUS", 60, 10);
 
-  // Temperature displays
   display.fillRoundRect(10, 60, 140, 60, 8, COLOR_CARD);
   display.drawRoundRect(10, 60, 140, 60, 8, COLOR_INFO);
   display.setFont(&fonts::Font2);
@@ -373,7 +417,6 @@ void drawMainScreen() {
   display.drawString(temp1Str, 15, 90);
   display.drawString(temp2Str, 175, 90);
 
-  // Status
   display.setFont(&fonts::Font2);
   display.setTextColor(COLOR_TEXT);
   display.drawString("STATUS:", 10, 150);
@@ -393,7 +436,6 @@ void drawMainScreen() {
   display.setTextColor(statusColor);
   display.drawString(statusText, 80, 150);
 
-  // Web interface info
   display.setTextColor(COLOR_TEXT_DIM);
   display.drawString("Web Interface:", 10, 200);
   display.setTextColor(wifiConnected ? COLOR_PRIMARY : COLOR_DANGER);
@@ -405,7 +447,7 @@ void drawMainScreen() {
   }
 
   display.setTextColor(COLOR_TEXT_DIM);
-  display.drawString("VERSION: 2025-01-03 16:35", 10, 280);
+  display.drawString("VERSION: 2025-01-03 17:00", 10, 280);
 }
 
 void setupWiFi() {
@@ -440,49 +482,37 @@ void setupWiFi() {
 void setup() {
 #ifdef ENABLE_SERIAL_DEBUG
   Serial.begin(115200);
-  Serial.println("=== Kiln Controller with SPIFFS Web Interface ===");
-  Serial.println("VERSION: 2025-01-03 16:35 UTC");
+  Serial.println("=== Kiln Controller with Complete Firing Schedule ===");
+  Serial.println("VERSION: 2025-01-03 17:00 UTC");
 #endif
 
-  // Initialize SPIFFS
   if (!SPIFFS.begin(true)) {
 #ifdef ENABLE_SERIAL_DEBUG
     Serial.println("SPIFFS Mount Failed!");
-    Serial.println("Make sure you have uploaded the web files to SPIFFS");
 #endif
-    while(1) {
-      delay(1000);
-    }
+    while(1) delay(1000);
   }
 
-#ifdef ENABLE_SERIAL_DEBUG
-  Serial.println("SPIFFS mounted successfully");
-#endif
-
-  // Initialize display
   display.init();
   display.setRotation(0);
   display.setBrightness(128);
   pinMode(27, OUTPUT);
   digitalWrite(27, HIGH);
 
-  // Initialize PID
   myPID.SetMode(AUTOMATIC);
   myPID.SetOutputLimits(0, 255);
   myPID.SetSampleTime(1000);
 
-  // Initialize SSR pins
   pinMode(SSR1_PIN, OUTPUT);
   pinMode(SSR2_PIN, OUTPUT);
   digitalWrite(SSR1_PIN, LOW);
   digitalWrite(SSR2_PIN, LOW);
 
-  // Initialize WiFi and web server
   setupWiFi();
   setupWebServer();
 
 #ifdef ENABLE_SERIAL_DEBUG
-  Serial.println("Setup complete - VERSION: 2025-01-03 16:35 UTC");
+  Serial.println("Setup complete - VERSION: 2025-01-03 17:00 UTC");
 #endif
 
   drawMainScreen();
@@ -491,13 +521,27 @@ void setup() {
 void loop() {
   static unsigned long lastTempRead = 0;
   static unsigned long lastDisplayUpdate = 0;
+  static unsigned long lastDebug = 0;
   
   unsigned long currentTime = millis();
 
-  // Read temperatures
   if (currentTime - lastTempRead >= 1000) {
     lastTempRead = currentTime;
     readTemperatures();
+    
+    // Debug output every 5 seconds when system is enabled
+    if (systemEnabled && currentTime - lastDebug >= 5000) {
+      lastDebug = currentTime;
+      Serial.printf("DEBUG: Setpoint=%.1f, Input1=%.1f, Input2=%.1f, Output1=%.1f\n", 
+                    Setpoint, Input1, Input2, Output1);
+      Serial.printf("DEBUG: systemEnabled=%d, emergencyStop=%d, usingSchedule=%d\n", 
+                    systemEnabled, emergencyStop, usingSchedule);
+    }
+    
+    // Handle firing schedule
+    if (usingSchedule && currentSchedule.active) {
+      handleFiringSchedule();
+    }
     
     // PID control
     if (systemEnabled && !emergencyStop) {
@@ -512,7 +556,6 @@ void loop() {
     }
   }
 
-  // Update display every 2 seconds
   if (currentTime - lastDisplayUpdate >= 2000) {
     lastDisplayUpdate = currentTime;
     drawMainScreen();
@@ -521,4 +564,4 @@ void loop() {
   delay(10);
 }
 
-// VERSION: 2025-01-03 16:35 UTC - End of file
+// VERSION: 2025-01-03 17:00 UTC - End of file

@@ -1,4 +1,4 @@
-/* VERSION: 2025-01-03 16:25 UTC - Kiln Controller Styles */
+/* VERSION: 2025-01-03 17:45 UTC - Restored Working Styles */
 
 * {
     margin: 0;
@@ -20,7 +20,6 @@ body {
     margin: 0 auto;
 }
 
-/* Header Styles */
 .header {
     text-align: center;
     margin-bottom: 30px;
@@ -47,7 +46,6 @@ body {
     font-weight: 500;
 }
 
-/* Status Grid */
 .status-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -104,7 +102,6 @@ body {
     font-weight: 500;
 }
 
-/* Color themes for different cards */
 .temp1 { --accent-color: #00d4ff; }
 .temp1 .value { color: #00d4ff; }
 
@@ -123,7 +120,6 @@ body {
 .status { --accent-color: #00ff88; }
 .status .value { color: #00ff88; }
 
-/* Controls */
 .controls {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -143,21 +139,6 @@ button {
     letter-spacing: 1px;
     position: relative;
     overflow: hidden;
-}
-
-button::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-    transition: left 0.5s ease;
-}
-
-button:hover::before {
-    left: 100%;
 }
 
 .btn-primary {
@@ -200,7 +181,6 @@ button:disabled {
     transform: none;
 }
 
-/* Manual Control Section */
 .manual-control, .schedule-section, .system-info, .log-section {
     background: rgba(255, 255, 255, 0.1);
     padding: 25px;
@@ -252,7 +232,6 @@ button:disabled {
     color: rgba(255, 255, 255, 0.5);
 }
 
-/* Schedule Grid */
 .schedule-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -288,42 +267,6 @@ button:disabled {
     color: rgba(255, 255, 255, 0.8);
 }
 
-/* Schedule Status */
-.schedule-status {
-    background: rgba(0, 255, 136, 0.1);
-    padding: 20px;
-    border-radius: 12px;
-    border: 1px solid rgba(0, 255, 136, 0.3);
-}
-
-.schedule-name {
-    font-size: 1.2rem;
-    font-weight: bold;
-    color: #00ff88;
-    margin-bottom: 10px;
-}
-
-.schedule-segment {
-    opacity: 0.8;
-    margin-bottom: 15px;
-}
-
-.progress-bar {
-    width: 100%;
-    height: 8px;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    overflow: hidden;
-}
-
-.progress-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #00ff88, #00d4ff);
-    width: 0%;
-    transition: width 0.3s ease;
-}
-
-/* System Info */
 .info-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -349,7 +292,6 @@ button:disabled {
     font-family: 'Courier New', monospace;
 }
 
-/* Log Section */
 .log {
     background: rgba(0, 0, 0, 0.3);
     padding: 20px;
@@ -363,25 +305,6 @@ button:disabled {
     line-height: 1.4;
 }
 
-.log::-webkit-scrollbar {
-    width: 8px;
-}
-
-.log::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
-}
-
-.log::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 4px;
-}
-
-.log::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.5);
-}
-
-/* Responsive Design */
 @media (max-width: 768px) {
     body {
         padding: 10px;
@@ -420,61 +343,4 @@ button:disabled {
     .info-grid {
         grid-template-columns: 1fr;
     }
-}
-
-@media (max-width: 480px) {
-    .status-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .status-card .value {
-        font-size: 1.8rem;
-    }
-    
-    button {
-        padding: 12px 20px;
-        font-size: 0.9rem;
-    }
-}
-
-/* Animation for status updates */
-@keyframes pulse {
-    0% { opacity: 1; }
-    50% { opacity: 0.7; }
-    100% { opacity: 1; }
-}
-
-.updating {
-    animation: pulse 1s ease-in-out;
-}
-
-/* Error states */
-.error {
-    border-color: #ff6b6b !important;
-    background: rgba(255, 107, 107, 0.1) !important;
-}
-
-.error .value {
-    color: #ff6b6b !important;
-}
-
-/* Success states */
-.success {
-    border-color: #00ff88 !important;
-    background: rgba(0, 255, 136, 0.1) !important;
-}
-
-/* Loading spinner */
-.loading {
-    display: inline-block;
-    width: 20px;
-    height: 20px;
-    border: 3px solid rgba(255, 255, 255, 0.3);
-    border-radius: 50%;
-    border-top-color: #00d4ff;
-    animation: spin 1s ease-in-out infinite;
-}
-
-@keyframes spin {
-    to { transform: rotate(360deg); }
 }

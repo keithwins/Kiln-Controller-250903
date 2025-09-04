@@ -1,10 +1,9 @@
-// VERSION: 2025-01-03 16:25 UTC - Kiln Controller JavaScript
+// VERSION: 2025-01-03 17:45 UTC - Restored Working JavaScript
 
 class KilnController {
     constructor() {
         this.logElement = document.getElementById('log');
         this.updateInterval = null;
-        this.schedules = [];
         this.lastStatus = {};
         
         this.init();
@@ -12,20 +11,13 @@ class KilnController {
     
     init() {
         this.log('Kiln Controller Web Interface loaded');
-        this.log('VERSION: 2025-01-03 16:25 UTC');
+        this.log('VERSION: 2025-01-03 17:45 UTC - Restored');
         
-        // Start status updates
         this.startStatusUpdates();
-        
-        // Load schedules
-        this.loadSchedules();
-        
-        // Set up event listeners
         this.setupEventListeners();
     }
     
     setupEventListeners() {
-        // Handle Enter key in temperature input
         const tempInput = document.getElementById('targetTemp');
         if (tempInput) {
             tempInput.addEventListener('keypress', (e) => {
@@ -35,7 +27,6 @@ class KilnController {
             });
         }
         
-        // Handle visibility change to pause/resume updates
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
                 this.stopStatusUpdates();
@@ -88,7 +79,7 @@ class KilnController {
             clearInterval(this.updateInterval);
         }
         
-        this.updateStatus(); // Initial update
+        this.updateStatus();
         this.updateInterval = setInterval(() => {
             this.updateStatus();
         }, 2000);
@@ -105,14 +96,12 @@ class KilnController {
         try {
             const data = await this.apiCall('/api/status');
             
-            // Update temperature displays
             this.updateElement('temp1', data.temp1.toFixed(1));
             this.updateElement('temp2', data.temp2.toFixed(1));
             this.updateElement('avgTemp', data.avgTemp.toFixed(1));
             this.updateElement('setpoint', data.setpoint.toFixed(1));
             this.updateElement('power', data.power.toFixed(0));
             
-            // Update status
             let status = 'Ready';
             let statusClass = 'info';
             if (data.emergency) {
@@ -129,34 +118,22 @@ class KilnController {
                 statusElement.className = 'value ' + statusClass;
             }
             
-            // Update button states
             const startBtn = document.getElementById('startBtn');
             const stopBtn = document.getElementById('stopBtn');
             
             if (startBtn) startBtn.disabled = data.enabled || data.emergency;
             if (stopBtn) stopBtn.disabled = !data.enabled;
             
-            // Update system info
             this.updateElement('uptime', this.formatUptime(data.uptime));
             this.updateElement('wifiStatus', data.wifi ? 'Connected' : 'Disconnected');
             this.updateElement('version', data.version || 'Unknown');
             
-            // Update schedule status
-            if (data.schedule) {
-                this.updateScheduleStatus(data.schedule);
-            } else {
-                this.hideScheduleStatus();
-            }
-            
-            // Check for significant changes
             this.checkForAlerts(data);
-            
             this.lastStatus = data;
             
         } catch (error) {
             this.log(`Failed to update status: ${error.message}`, 'error');
             
-            // Show offline status
             const elements = ['temp1', 'temp2', 'avgTemp', 'setpoint', 'power', 'status'];
             elements.forEach(id => {
                 const el = document.getElementById(id);
@@ -189,7 +166,6 @@ class KilnController {
     }
     
     checkForAlerts(data) {
-        // Temperature alerts
         if (data.temp1 > 1000 || data.temp2 > 1000) {
             if (!this.lastStatus.highTempAlerted) {
                 this.log('HIGH TEMPERATURE WARNING: >1000°C detected', 'warning');
@@ -199,12 +175,10 @@ class KilnController {
             this.lastStatus.highTempAlerted = false;
         }
         
-        // Emergency stop alert
         if (data.emergency && !this.lastStatus.emergency) {
             this.log('EMERGENCY STOP ACTIVATED', 'error');
         }
         
-        // System started/stopped
         if (data.enabled !== this.lastStatus.enabled) {
             if (data.enabled) {
                 this.log('System started', 'success');
@@ -214,69 +188,6 @@ class KilnController {
         }
     }
     
-    async loadSchedules() {
-        try {
-            const response = await this.apiCall('/api/control', {
-                method: 'POST',
-                body: 'action=schedules'
-            });
-            
-            if (response.success && response.schedules) {
-                this.schedules = response.schedules;
-                this.renderSchedules();
-            }
-        } catch (error) {
-            // If schedules endpoint doesn't exist, create default ones
-            this.schedules = [
-                { index: 0, name: 'Bisque Fire', segments: 3, maxTemp: 950 },
-                { index: 1, name: 'Glaze Fire', segments: 4, maxTemp: 1240 },
-                { index: 2, name: 'Test Fire', segments: 2, maxTemp: 200 }
-            ];
-            this.renderSchedules();
-        }
-    }
-    
-    renderSchedules() {
-        const grid = document.getElementById('scheduleGrid');
-        if (!grid) return;
-        
-        grid.innerHTML = '';
-        
-        this.schedules.forEach(schedule => {
-            const card = document.createElement('div');
-            card.className = 'schedule-card';
-            card.onclick = () => this.startSchedule(schedule.index);
-            
-            card.innerHTML = `
-                <h4>${schedule.name}</h4>
-                <div class="segments">${schedule.segments} segments • Max: ${schedule.maxTemp}°C</div>
-            `;
-            
-            grid.appendChild(card);
-        });
-    }
-    
-    updateScheduleStatus(schedule) {
-        const statusDiv = document.getElementById('scheduleStatus');
-        const nameEl = document.getElementById('activScheduleName');
-        const segmentEl = document.getElementById('activeScheduleSegment');
-        const progressEl = document.getElementById('scheduleProgress');
-        
-        if (statusDiv) statusDiv.style.display = 'block';
-        if (nameEl) nameEl.textContent = schedule.name;
-        if (segmentEl) segmentEl.textContent = `Segment ${schedule.segment} of ${schedule.total} - Target: ${schedule.target}°C`;
-        if (progressEl) {
-            const progress = (schedule.segment / schedule.total) * 100;
-            progressEl.style.width = progress + '%';
-        }
-    }
-    
-    hideScheduleStatus() {
-        const statusDiv = document.getElementById('scheduleStatus');
-        if (statusDiv) statusDiv.style.display = 'none';
-    }
-    
-    // Control methods
     async startSystem() {
         try {
             const response = await this.apiCall('/api/control', {
@@ -312,7 +223,7 @@ class KilnController {
     }
     
     async emergencyStop() {
-        if (confirm('Are you sure you want to activate EMERGENCY STOP? This will immediately shut down all heating.')) {
+        if (confirm('Are you sure you want to activate EMERGENCY STOP?')) {
             try {
                 const response = await this.apiCall('/api/control', {
                     method: 'POST',
@@ -371,7 +282,7 @@ class KilnController {
             
             if (response.success) {
                 this.log(response.message, 'success');
-                tempInput.value = ''; // Clear input
+                tempInput.value = '';
             } else {
                 this.log(response.message, 'error');
             }
@@ -381,15 +292,10 @@ class KilnController {
     }
     
     async startSchedule(index) {
-        const schedule = this.schedules.find(s => s.index === index);
-        if (!schedule) {
-            this.log('Schedule not found', 'error');
-            return;
-        }
+        const scheduleNames = ['Bisque Fire', 'Glaze Fire', 'Test Fire'];
+        const scheduleName = scheduleNames[index] || 'Unknown';
         
-        const confirmMsg = `Start "${schedule.name}" firing schedule?\n\n` +
-                          `${schedule.segments} segments, max temperature: ${schedule.maxTemp}°C\n\n` +
-                          `This will automatically control the kiln heating.`;
+        const confirmMsg = `Start "${scheduleName}" firing schedule?`;
         
         if (confirm(confirmMsg)) {
             try {
@@ -408,94 +314,8 @@ class KilnController {
             }
         }
     }
-    
-    // Utility methods
-    showNotification(message, type = 'info') {
-        // Create a temporary notification element
-        const notification = document.createElement('div');
-        notification.className = `notification ${type}`;
-        notification.textContent = message;
-        notification.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 15px 25px;
-            background: ${type === 'error' ? '#ff6b6b' : type === 'success' ? '#00ff88' : '#00d4ff'};
-            color: ${type === 'success' || type === 'info' ? '#1a1a1a' : 'white'};
-            border-radius: 8px;
-            z-index: 1000;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-            transform: translateX(100%);
-            transition: transform 0.3s ease;
-        `;
-        
-        document.body.appendChild(notification);
-        
-        // Animate in
-        setTimeout(() => {
-            notification.style.transform = 'translateX(0)';
-        }, 100);
-        
-        // Remove after 5 seconds
-        setTimeout(() => {
-            notification.style.transform = 'translateX(100%)';
-            setTimeout(() => {
-                if (notification.parentNode) {
-                    notification.parentNode.removeChild(notification);
-                }
-            }, 300);
-        }, 5000);
-    }
-    
-    exportLog() {
-        const logContent = this.logElement.innerHTML
-            .replace(/<br>/g, '\n')
-            .replace(/<[^>]*>/g, ''); // Remove HTML tags
-        
-        const blob = new Blob([logContent], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `kiln-log-${new Date().toISOString().split('T')[0]}.txt`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        
-        this.log('Log exported successfully', 'success');
-    }
-    
-    // Keyboard shortcuts
-    handleKeyboard(event) {
-        if (event.ctrlKey || event.metaKey) {
-            switch (event.key.toLowerCase()) {
-                case 's':
-                    event.preventDefault();
-                    this.startSystem();
-                    break;
-                case 'x':
-                    event.preventDefault();
-                    this.stopSystem();
-                    break;
-                case 'e':
-                    event.preventDefault();
-                    this.emergencyStop();
-                    break;
-                case 'r':
-                    event.preventDefault();
-                    this.resetSystem();
-                    break;
-                case 'l':
-                    event.preventDefault();
-                    this.clearLog();
-                    break;
-            }
-        }
-    }
 }
 
-// Global functions for HTML onclick handlers
 let kilnController;
 
 function startSystem() {
@@ -526,41 +346,14 @@ function clearLog() {
     kilnController.clearLog();
 }
 
-function exportLog() {
-    kilnController.exportLog();
-}
-
-// Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     kilnController = new KilnController();
-    
-    // Add keyboard shortcuts
-    document.addEventListener('keydown', (e) => {
-        kilnController.handleKeyboard(e);
-    });
-    
-    // Add export log button if it doesn't exist
-    const logSection = document.querySelector('.log-section');
-    if (logSection && !document.getElementById('exportLogBtn')) {
-        const exportBtn = document.createElement('button');
-        exportBtn.id = 'exportLogBtn';
-        exportBtn.className = 'btn-secondary';
-        exportBtn.textContent = 'Export Log';
-        exportBtn.onclick = exportLog;
-        exportBtn.style.marginLeft = '10px';
-        
-        const clearBtn = logSection.querySelector('button');
-        if (clearBtn) {
-            clearBtn.parentNode.insertBefore(exportBtn, clearBtn.nextSibling);
-        }
-    }
 });
 
-// Handle page unload
 window.addEventListener('beforeunload', () => {
     if (kilnController) {
         kilnController.stopStatusUpdates();
     }
 });
 
-// VERSION: 2025-01-03 16:25 UTC - End of file
+// VERSION: 2025-01-03 17:45 UTC - End of file

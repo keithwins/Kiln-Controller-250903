@@ -64,16 +64,17 @@
         <div class="schedule-section">
             <h2>Firing Schedules</h2>
             <div class="schedule-grid" id="scheduleGrid">
-                <!-- Schedules will be loaded dynamically -->
-            </div>
-            <div class="schedule-status" id="scheduleStatus" style="display: none;">
-                <h3>Active Schedule</h3>
-                <div class="schedule-progress">
-                    <div class="schedule-name" id="activScheduleName"></div>
-                    <div class="schedule-segment" id="activeScheduleSegment"></div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="scheduleProgress"></div>
-                    </div>
+                <div class="schedule-card" onclick="startSchedule(0)">
+                    <h4>Bisque Fire</h4>
+                    <div class="segments">3 segments • Max: 950°C</div>
+                </div>
+                <div class="schedule-card" onclick="startSchedule(1)">
+                    <h4>Glaze Fire</h4>
+                    <div class="segments">4 segments • Max: 1240°C</div>
+                </div>
+                <div class="schedule-card" onclick="startSchedule(2)">
+                    <h4>Test Fire</h4>
+                    <div class="segments">2 segments • Max: 200°C</div>
                 </div>
             </div>
         </div>
@@ -88,10 +89,6 @@
                 <div class="info-item">
                     <span class="label">WiFi:</span>
                     <span class="value" id="wifiStatus">--</span>
-                </div>
-                <div class="info-item">
-                    <span class="label">Free Heap:</span>
-                    <span class="value" id="memory">--</span>
                 </div>
             </div>
         </div>
