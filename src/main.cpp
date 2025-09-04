@@ -1,4 +1,4 @@
-// VERSION: 2025-01-03 16:20 UTC - Kiln Controller with Separate Web Files
+// VERSION: 2025-01-03 16:35 UTC - Fixed ArduinoJson Deprecation Warnings
 #define ENABLE_SERIAL_DEBUG
 
 #include <Arduino.h>
@@ -161,7 +161,8 @@ void readTemperatures() {
 }
 
 String getStatusJSON() {
-  DynamicJsonDocument doc(512);
+  // Using modern ArduinoJson syntax
+  JsonDocument doc;
   
   doc["temp1"] = Input1;
   doc["temp2"] = Input2;
@@ -172,7 +173,7 @@ String getStatusJSON() {
   doc["emergency"] = emergencyStop;
   doc["wifi"] = wifiConnected;
   doc["uptime"] = millis() / 1000;
-  doc["version"] = "2025-01-03 16:20 UTC";
+  doc["version"] = "2025-01-03 16:35 UTC";
   
   if (usingSchedule && currentSchedule.active) {
     doc["schedule"]["name"] = currentSchedule.name;
@@ -223,7 +224,8 @@ void setupWebServer() {
       value = request->getParam("index", true)->value();
     }
     
-    DynamicJsonDocument response(256);
+    // Using modern ArduinoJson syntax
+    JsonDocument response;
     response["success"] = false;
     response["message"] = "Unknown action";
     
@@ -306,11 +308,11 @@ void setupWebServer() {
       }
     }
     else if (action == "schedules") {
-      // Return available schedules
+      // Return available schedules using modern syntax
       response["success"] = true;
-      JsonArray schedules = response.createNestedArray("schedules");
+      JsonArray schedules = response["schedules"].to<JsonArray>();
       for (int i = 0; i < 3; i++) {
-        JsonObject sched = schedules.createNestedObject();
+        JsonObject sched = schedules.add<JsonObject>();
         sched["index"] = i;
         sched["name"] = presetSchedules[i].name;
         sched["segments"] = presetSchedules[i].segmentCount;
@@ -403,7 +405,7 @@ void drawMainScreen() {
   }
 
   display.setTextColor(COLOR_TEXT_DIM);
-  display.drawString("VERSION: 2025-01-03 16:20", 10, 280);
+  display.drawString("VERSION: 2025-01-03 16:35", 10, 280);
 }
 
 void setupWiFi() {
@@ -439,7 +441,7 @@ void setup() {
 #ifdef ENABLE_SERIAL_DEBUG
   Serial.begin(115200);
   Serial.println("=== Kiln Controller with SPIFFS Web Interface ===");
-  Serial.println("VERSION: 2025-01-03 16:20 UTC");
+  Serial.println("VERSION: 2025-01-03 16:35 UTC");
 #endif
 
   // Initialize SPIFFS
@@ -455,14 +457,6 @@ void setup() {
 
 #ifdef ENABLE_SERIAL_DEBUG
   Serial.println("SPIFFS mounted successfully");
-  Serial.println("Files in SPIFFS:");
-  File root = SPIFFS.open("/");
-  File file = root.openNextFile();
-  while(file) {
-    Serial.print("  ");
-    Serial.println(file.name());
-    file = root.openNextFile();
-  }
 #endif
 
   // Initialize display
@@ -488,7 +482,7 @@ void setup() {
   setupWebServer();
 
 #ifdef ENABLE_SERIAL_DEBUG
-  Serial.println("Setup complete - VERSION: 2025-01-03 16:20 UTC");
+  Serial.println("Setup complete - VERSION: 2025-01-03 16:35 UTC");
 #endif
 
   drawMainScreen();
@@ -527,4 +521,4 @@ void loop() {
   delay(10);
 }
 
-// VERSION: 2025-01-03 16:20 UTC - End of file
+// VERSION: 2025-01-03 16:35 UTC - End of file
