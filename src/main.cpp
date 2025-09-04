@@ -1,17 +1,15 @@
 // Uncomment the line below if you have an MCP23017 for physical buttons
-#define USE_MCP23017
+// #define USE_MCP23017
 
 #include <Arduino.h>
 #include <Adafruit_MAX31856.h>
-#ifdef USE_MCP23017
-#include "Adafruit_MCP23X17.h"
-#endif
 #include <PID_v1.h>
 #include <LovyanGFX.hpp>
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
 #include <SPIFFS.h>
+#include <esp_heap_caps.h>
 
 // Display configuration for LovyanGFX
 class LGFX : public lgfx::LGFX_Device
@@ -88,8 +86,8 @@ public:
 #define DRY_RUN
 
 // WiFi credentials - change these!
-const char *ssid = "wellbeing24_Guest";
-const char *password = "wellbeing?25";
+const char *ssid PROGMEM = "wellbeing24_Guest";
+const char *password PROGMEM = "wellbeing?25";
 
 // --- Safety Limits ---
 const double MAX_TEMPERATURE = 1200.0;
@@ -108,9 +106,8 @@ const int SSR1_PIN = 32;
 const int SSR2_PIN = 33;
 
 // I2C pins
-const int SDA_PIN = 32; // 16, 13, 18, 19, 21
-const int SCL_PIN = 25; // 17, 14, 19, 18, 22
-const int MCP_I2C_ADDR = 0x27;
+const int SDA_PIN = 32;
+const int SCL_PIN = 25;
 
 // --- Firing Schedule Structure ---
 struct FiringSegment
@@ -123,7 +120,7 @@ struct FiringSegment
 
 struct FiringSchedule
 {
-  String name;
+  char name[20]; // Fixed-size to avoid String
   FiringSegment segments[10]; // Max 10 segments
   int segmentCount;
   bool active;
@@ -133,7 +130,7 @@ struct FiringSchedule
 
 // Predefined firing schedules
 FiringSchedule presetSchedules[] = {
-    {"Bisque Fire",
+    {{"Bisque Fire"},
      {
          {200, 50, 30, false},  // Slow warm-up
          {500, 100, 60, false}, // Dehydration hold
@@ -143,7 +140,7 @@ FiringSchedule presetSchedules[] = {
      false,
      0,
      0},
-    {"Glaze Fire",
+    {{"Glaze Fire"},
      {
          {300, 100, 0, false},  // Quick warm-up
          {600, 80, 0, false},   // Steady climb
@@ -154,7 +151,7 @@ FiringSchedule presetSchedules[] = {
      false,
      0,
      0},
-    {"Test Fire",
+    {{"Test Fire"},
      {
          {100, 60, 5, false},   // Gentle test
          {200, 120, 10, false}, // Hold
@@ -168,9 +165,6 @@ FiringSchedule presetSchedules[] = {
 LGFX display;
 Adafruit_MAX31856 maxsensor1(MAX1_CS_PIN, MAX_SI_PIN, MAX_SO_PIN, MAX_SCK_PIN);
 Adafruit_MAX31856 maxsensor2(MAX2_CS_PIN, MAX_SI_PIN, MAX_SO_PIN, MAX_SCK_PIN);
-#ifdef USE_MCP23017
-Adafruit_MCP23X17 mcp;
-#endif
 AsyncWebServer server(80);
 
 // --- PID Variables ---
@@ -185,6 +179,7 @@ bool wifiConnected = false;
 unsigned long heatingStartTime = 0;
 unsigned long lastDisplayUpdate = 0;
 unsigned long lastTempRead = 0;
+unsigned long lastMemoryCheck = 0;
 
 FiringSchedule currentSchedule;
 bool usingSchedule = false;
@@ -207,7 +202,7 @@ struct DataPoint
   double temp1, temp2, setpoint, output;
 };
 
-const int MAX_DATA_POINTS = 200;
+const int MAX_DATA_POINTS = 100;
 DataPoint dataLog[MAX_DATA_POINTS];
 int dataIndex = 0;
 int validDataCount = 0;
@@ -219,7 +214,7 @@ struct TouchArea
   int id;
 };
 
-TouchArea touchAreas[20]; // Max 20 touch areas
+TouchArea touchAreas[20];
 int touchAreaCount = 0;
 
 // --- Colors ---
@@ -241,6 +236,133 @@ double heatLoss = 0.98;
 unsigned long lastTempUpdate = 0;
 const int TEMP_UPDATE_INTERVAL = 200;
 #endif
+
+// Minimal index.html with graph
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Kiln Controller</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; background: #1a252f; color: white; text-align: center; }
+    .card { background: #2c3e50; border-radius: 8px; padding: 10px; margin: 10px; }
+    button { padding: 10px 20px; margin: 5px; background: #2196F3; border: none; color: white; cursor: pointer; }
+    button.danger { background: #d32f2f; }
+    button:disabled { opacity: 0.5; }
+    canvas { max-width: 600px; margin: 0 auto; }
+    input { padding: 8px; margin: 5px; }
+  </style>
+</head>
+<body>
+  <h1>Kiln Controller</h1>
+  <div class="card">
+    <h2>Status</h2>
+    <p>Temp 1: <span id="temp1">-</span>°C</p>
+    <p>Temp 2: <span id="temp2">-</span>°C</p>
+    <p>Average: <span id="avgTemp">-</span>°C</p>
+    <p>Setpoint: <span id="setpoint">-</span>°C</p>
+    <p>Output: <span id="output">-</span>%</p>
+    <p>Status: <span id="status">-</span></p>
+  </div>
+  <div class="card">
+    <h2>Firing Schedule</h2>
+    <p>Schedule: <span id="scheduleName">-</span></p>
+    <p>Segment: <span id="currentSegment">-</span>/<span id="totalSegments">-</span></p>
+    <canvas id="tempChart" width="600" height="300"></canvas>
+  </div>
+  <div class="card">
+    <h2>Control</h2>
+    <input type="number" id="setpointInput" placeholder="Enter setpoint (°C)" step="0.1">
+    <button onclick="setSetpoint()">Set Setpoint</button>
+    <button onclick="start()">Start</button>
+    <button onclick="stop()">Stop</button>
+    <button class="danger" onclick="emergency()">Emergency Stop</button>
+    <button onclick="reset()">Reset</button>
+  </div>
+  <script>
+    let chart;
+    function initChart() {
+      const ctx = document.getElementById('tempChart').getContext('2d');
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          datasets: [
+            { label: 'Temp 1', data: [], borderColor: '#00f', fill: false },
+            { label: 'Temp 2', data: [], borderColor: '#0ff', fill: false },
+            { label: 'Setpoint', data: [], borderColor: '#f00', fill: false },
+            { label: 'Schedule', data: [], borderColor: '#ff0', fill: false, borderDash: [5, 5] }
+          ]
+        },
+        options: {
+          scales: {
+            x: { type: 'linear', title: { display: true, text: 'Time (s)' } },
+            y: { title: { display: true, text: 'Temperature (°C)' }, suggestedMin: 0, suggestedMax: 1300 }
+          }
+        }
+      });
+    }
+    function updateStatus() {
+      fetch('/api/status').then(res => res.json()).then(data => {
+        document.getElementById('temp1').innerText = data.temp1.toFixed(1);
+        document.getElementById('temp2').innerText = data.temp2.toFixed(1);
+        document.getElementById('avgTemp').innerText = data.avgTemp.toFixed(1);
+        document.getElementById('setpoint').innerText = data.setpoint.toFixed(1);
+        document.getElementById('output').innerText = data.output.toFixed(0);
+        document.getElementById('status').innerText = data.emergency ? 'Emergency Stop' : data.enabled ? 'Heating' : 'Ready';
+      }).catch(err => console.error('Status fetch error:', err));
+    }
+    function updateGraph() {
+      fetch('/api/data').then(res => res.json()).then(data => {
+        const now = Date.now() / 1000;
+        chart.data.datasets[0].data = data.data.map(d => ({ x: (d.time / 1000), y: d.temp1 }));
+        chart.data.datasets[1].data = data.data.map(d => ({ x: (d.time / 1000), y: d.temp2 }));
+        chart.data.datasets[2].data = data.data.map(d => ({ x: (d.time / 1000), y: d.setpoint }));
+        chart.update();
+      }).catch(err => console.error('Data fetch error:', err));
+      fetch('/api/schedule').then(res => res.json()).then(data => {
+        document.getElementById('scheduleName').innerText = data.name || 'None';
+        document.getElementById('currentSegment').innerText = data.currentSegment + 1;
+        document.getElementById('totalSegments').innerText = data.segmentCount;
+        chart.data.datasets[3].data = data.points.map(p => ({ x: p.time / 1000, y: p.temp }));
+        chart.update();
+      }).catch(err => console.error('Schedule fetch error:', err));
+    }
+    function setSetpoint() {
+      const value = document.getElementById('setpointInput').value;
+      fetch('/api/setpoint', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, 
+        body: `value=${value}` 
+      }).then(res => res.text()).then(alert)
+        .catch(err => console.error('Setpoint fetch error:', err));
+    }
+    function start() { 
+      fetch('/api/start', { method: 'POST' }).then(res => res.text()).then(alert)
+        .catch(err => console.error('Start fetch error:', err)); 
+    }
+    function stop() { 
+      fetch('/api/stop', { method: 'POST' }).then(res => res.text()).then(alert)
+        .catch(err => console.error('Stop fetch error:', err)); 
+    }
+    function emergency() { 
+      fetch('/api/emergency', { method: 'POST' }).then(res => res.text()).then(alert)
+        .catch(err => console.error('Emergency fetch error:', err)); 
+    }
+    function reset() { 
+      fetch('/api/reset', { method: 'POST' }).then(res => res.text()).then(alert)
+        .catch(err => console.error('Reset fetch error:', err)); 
+    }
+    initChart();
+    setInterval(updateStatus, 2000);
+    setInterval(updateGraph, 5000);
+    updateStatus();
+    updateGraph();
+  </script>
+</body>
+</html>
+)rawliteral";
 
 // Forward declarations
 void drawBootScreen();
@@ -265,6 +387,7 @@ void drawManualScreen();
 void drawSchedulesScreen();
 void drawGraphScreen();
 void drawSettingsScreen();
+void checkMemory();
 
 void setup()
 {
@@ -273,7 +396,7 @@ void setup()
 
   // Initialize display
   display.init();
-  display.setRotation(0); // Portrait
+  display.setRotation(0);
   display.setBrightness(128);
 
   drawBootScreen();
@@ -289,44 +412,17 @@ void setup()
 
   // Initialize I2C
   Wire.begin(SDA_PIN, SCL_PIN);
-  // More detailed I2C scanner
-  Serial.println("Starting detailed I2C scan...");
-  Serial.printf("SDA pin: %d, SCL pin: %d\n", SDA_PIN, SCL_PIN);
-
+  Serial.println("Starting I2C scan...");
   for (byte address = 1; address < 127; address++)
   {
     Wire.beginTransmission(address);
     byte error = Wire.endTransmission();
-
     if (error == 0)
     {
       Serial.printf("Device found at 0x%02X\n", address);
     }
-    else if (error == 4)
-    {
-      Serial.printf("Unknown error at 0x%02X\n", address);
-    }
   }
   Serial.println("I2C scan complete");
-
-  // Initialize MCP23017 (optional - only if you have physical buttons)
-#ifdef USE_MCP23017
-  if (!mcp.begin_I2C(MCP_I2C_ADDR))
-  {
-    Serial.println("Warning: Cannot connect to MCP23017 - continuing without it");
-  }
-  else
-  {
-    Serial.println("MCP23017 connected for physical buttons");
-    // Configure MCP23017 pins as inputs with pullups
-    for (int i = 2; i < 6; i++)
-    {
-      mcp.pinMode(i, INPUT_PULLUP);
-    }
-  }
-#else
-  Serial.println("MCP23017 support disabled - using touch only");
-#endif
 
 #ifndef DRY_RUN
   // Initialize thermocouple amplifiers
@@ -353,11 +449,10 @@ void setup()
 #endif
 
   // Initialize SSR pins
-  // Configure pins A0 and A1 as outputs for SSRs
-  mcp.pinMode(0, OUTPUT);
-  mcp.pinMode(1, OUTPUT);
-  mcp.digitalWrite(0, LOW); // SSR1 on pin A0
-  mcp.digitalWrite(1, LOW); // SSR2 on pin A1
+  pinMode(SSR1_PIN, OUTPUT);
+  pinMode(SSR2_PIN, OUTPUT);
+  digitalWrite(SSR1_PIN, LOW);
+  digitalWrite(SSR2_PIN, LOW);
 
   // Initialize PID
   Setpoint = 100.0;
@@ -408,27 +503,17 @@ void loop()
   {
     avgTemp = (Input1 + Input2) / 2.0;
     myPID.Compute();
-
-#ifdef USE_MCP23017
-    // Use MCP23017 pins A0 and A1 for SSRs
-    mcp.digitalWrite(0, Output1 > 128 ? HIGH : LOW); // SSR1 on pin A0
-    mcp.digitalWrite(1, Output1 > 128 ? HIGH : LOW); // SSR2 on pin A1
-#else
-    analogWrite(SSR1_PIN, (int)Output1);
-    analogWrite(SSR2_PIN, (int)Output1);
-#endif
+    int outputInt = (int)Output1;
+    analogWrite(SSR1_PIN, outputInt);
+    analogWrite(SSR2_PIN, outputInt);
   }
   else
   {
-#ifdef USE_MCP23017
-    mcp.digitalWrite(0, LOW);
-    mcp.digitalWrite(1, LOW);
-#else
     digitalWrite(SSR1_PIN, LOW);
     digitalWrite(SSR2_PIN, LOW);
-#endif
     Output1 = 0;
   }
+
   // Update display
   if (currentTime - lastDisplayUpdate >= 1000)
   {
@@ -436,7 +521,22 @@ void loop()
     updateCurrentScreen();
   }
 
+  // Memory diagnostics
+  if (currentTime - lastMemoryCheck >= 500)
+  {
+    lastMemoryCheck = currentTime;
+    checkMemory();
+  }
+
   delay(10);
+}
+
+void checkMemory()
+{
+  Serial.printf("Free Heap: %d bytes | Min Free Heap: %d bytes\n", ESP.getFreeHeap(), ESP.getMinFreeHeap());
+  size_t free8bit = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+  size_t free32bit = heap_caps_get_free_size(MALLOC_CAP_32BIT);
+  Serial.printf("Free 8-bit: %d | Free 32-bit: %d\n", free8bit, free32bit);
 }
 
 void drawBootScreen()
@@ -444,7 +544,7 @@ void drawBootScreen()
   display.fillScreen(COLOR_BG);
   display.setFont(&fonts::Font4);
   display.setTextColor(COLOR_TEXT);
-  display.drawString("🔥 KILN CONTROLLER", 20, 100);
+  display.drawString("KILN CONTROLLER", 20, 100);
   display.setFont(&fonts::Font2);
   display.drawString("Advanced Firing System", 50, 150);
   display.drawString("Initializing...", 100, 300);
@@ -457,31 +557,79 @@ void drawBootScreen()
 
 void drawMainScreen()
 {
-  display.fillScreen(COLOR_BG);
-  touchAreaCount = 0;
+  static double lastInput1 = -999, lastInput2 = -999, lastSetpoint = -999, lastOutput = -999;
+  static bool lastSystemEnabled = false, lastEmergencyStop = false, lastWifiConnected = false;
 
-  // Header
-  display.setFont(&fonts::Font4);
-  display.setTextColor(COLOR_TEXT);
-  display.drawString("KILN STATUS", 60, 10);
+  if (lastInput1 == -999)
+  {
+    display.fillScreen(COLOR_BG);
+    touchAreaCount = 0;
 
-  // Temperature cards
-  drawTemperatureCard(10, 60, "TEMP 1", Input1, COLOR_INFO);
-  drawTemperatureCard(170, 60, "TEMP 2", Input2, COLOR_INFO);
+    display.setFont(&fonts::Font4);
+    display.setTextColor(COLOR_TEXT);
+    display.drawString("KILN STATUS", 60, 10);
 
-  drawTemperatureCard(10, 130, "AVERAGE", (Input1 + Input2) / 2.0, COLOR_PRIMARY);
-  drawTemperatureCard(170, 130, "TARGET", Setpoint, COLOR_WARNING);
+    display.fillRoundRect(10, 60, 140, 60, 8, COLOR_CARD);
+    display.drawRoundRect(10, 60, 140, 60, 8, COLOR_INFO);
+    display.setFont(&fonts::Font2);
+    display.setTextColor(COLOR_TEXT_DIM);
+    display.drawString("TEMP 1", 20, 65);
 
-  // Power output bar
-  drawPowerBar(10, 200);
+    display.fillRoundRect(170, 60, 140, 60, 8, COLOR_CARD);
+    display.drawRoundRect(170, 60, 140, 60, 8, COLOR_INFO);
+    display.drawString("TEMP 2", 180, 65);
 
-  // Status
-  drawStatusArea(10, 240);
+    display.fillRoundRect(10, 130, 140, 60, 8, COLOR_CARD);
+    display.drawRoundRect(10, 130, 140, 60, 8, COLOR_PRIMARY);
+    display.drawString("AVERAGE", 20, 135);
 
-  // Control buttons
-  drawMainButtons();
+    display.fillRoundRect(170, 130, 140, 60, 8, COLOR_CARD);
+    display.drawRoundRect(170, 130, 140, 60, 8, COLOR_WARNING);
+    display.drawString("TARGET", 180, 135);
 
-  // Schedule info if active
+    display.setFont(&fonts::Font2);
+    display.setTextColor(COLOR_TEXT);
+    display.drawString("POWER OUTPUT", 10, 180);
+    display.fillRoundRect(10, 200, 300, 25, 4, COLOR_CARD);
+
+    display.drawString("STATUS:", 10, 240);
+    display.drawString("WiFi:", 10, 260);
+
+    drawMainButtons();
+  }
+
+  if (Input1 != lastInput1)
+  {
+    drawTemperatureCard(10, 60, "TEMP 1", Input1, COLOR_INFO);
+    lastInput1 = Input1;
+  }
+  if (Input2 != lastInput2)
+  {
+    drawTemperatureCard(170, 60, "TEMP 2", Input2, COLOR_INFO);
+    lastInput2 = Input2;
+  }
+  if (Input1 != lastInput1 || Input2 != lastInput2)
+  {
+    drawTemperatureCard(10, 130, "AVERAGE", (Input1 + Input2) / 2.0, COLOR_PRIMARY);
+  }
+  if (Setpoint != lastSetpoint)
+  {
+    drawTemperatureCard(170, 130, "TARGET", Setpoint, COLOR_WARNING);
+    lastSetpoint = Setpoint;
+  }
+  if (Output1 != lastOutput)
+  {
+    drawPowerBar(10, 200);
+    lastOutput = Output1;
+  }
+  if (systemEnabled != lastSystemEnabled || emergencyStop != lastEmergencyStop || wifiConnected != lastWifiConnected)
+  {
+    drawStatusArea(10, 240);
+    lastSystemEnabled = systemEnabled;
+    lastEmergencyStop = emergencyStop;
+    lastWifiConnected = wifiConnected;
+  }
+
   if (usingSchedule && currentSchedule.active)
   {
     drawScheduleProgress(10, 300);
@@ -490,17 +638,11 @@ void drawMainScreen()
 
 void drawTemperatureCard(int x, int y, const char *label, double temp, uint32_t color)
 {
-  display.fillRoundRect(x, y, 140, 60, 8, COLOR_CARD);
-  display.drawRoundRect(x, y, 140, 60, 8, color);
-
-  display.setFont(&fonts::Font2);
-  display.setTextColor(COLOR_TEXT_DIM);
-  display.drawString(label, x + 10, y + 5);
-
   display.setFont(&fonts::Font4);
   display.setTextColor(color);
-  char tempStr[20];
-  snprintf(tempStr, sizeof(tempStr), "%.1f°C", temp);
+  char tempStr[10];
+  snprintf(tempStr, sizeof(tempStr), "%.1f C", temp);
+  display.fillRect(x + 10, y + 25, 120, 30, COLOR_CARD);
   display.drawString(tempStr, x + 10, y + 25);
 }
 
@@ -509,14 +651,6 @@ void drawPowerBar(int x, int y)
   int barWidth = 300;
   int barHeight = 25;
 
-  display.setFont(&fonts::Font2);
-  display.setTextColor(COLOR_TEXT);
-  display.drawString("POWER OUTPUT", x, y - 20);
-
-  // Background
-  display.fillRoundRect(x, y, barWidth, barHeight, 4, COLOR_CARD);
-
-  // Fill based on output
   int fillWidth = (int)((Output1 / 255.0) * barWidth);
   uint32_t fillColor = COLOR_PRIMARY;
   if (Output1 > 200)
@@ -524,24 +658,21 @@ void drawPowerBar(int x, int y)
   else if (Output1 > 128)
     fillColor = COLOR_WARNING;
 
+  display.fillRect(x, y, barWidth, barHeight, COLOR_CARD);
   if (fillWidth > 0)
   {
     display.fillRoundRect(x, y, fillWidth, barHeight, 4, fillColor);
   }
 
-  // Percentage text
-  char percentStr[10];
+  char percentStr[6];
   snprintf(percentStr, sizeof(percentStr), "%.0f%%", (Output1 / 255.0) * 100);
   display.setTextColor(COLOR_TEXT);
+  display.fillRect(x + barWidth + 10, y + 5, 50, 20, COLOR_BG);
   display.drawString(percentStr, x + barWidth + 10, y + 5);
 }
 
 void drawStatusArea(int x, int y)
 {
-  display.setFont(&fonts::Font2);
-  display.setTextColor(COLOR_TEXT);
-  display.drawString("STATUS:", x, y);
-
   const char *statusText;
   uint32_t statusColor;
 
@@ -561,48 +692,42 @@ void drawStatusArea(int x, int y)
     statusColor = COLOR_INFO;
   }
 
+  display.setFont(&fonts::Font2);
   display.setTextColor(statusColor);
+  display.fillRect(x + 80, y, 200, 20, COLOR_BG);
   display.drawString(statusText, x + 80, y);
 
-  // WiFi status
-  display.setTextColor(COLOR_TEXT_DIM);
-  display.drawString("WiFi:", x, y + 20);
   display.setTextColor(wifiConnected ? COLOR_PRIMARY : COLOR_DANGER);
+  display.fillRect(x + 50, y + 20, 100, 20, COLOR_BG);
   display.drawString(wifiConnected ? "Connected" : "Disconnected", x + 50, y + 20);
 }
 
 void drawMainButtons()
 {
-  // Manual control button
-  addTouchArea(10, 360, 90, 40, 1);
-  display.fillRoundRect(10, 360, 90, 40, 8, COLOR_INFO);
   display.setFont(&fonts::Font2);
   display.setTextColor(COLOR_TEXT);
+
+  addTouchArea(10, 360, 90, 40, 1);
+  display.fillRoundRect(10, 360, 90, 40, 8, COLOR_INFO);
   display.drawString("MANUAL", 25, 375);
 
-  // Schedules button
   addTouchArea(110, 360, 90, 40, 2);
   display.fillRoundRect(110, 360, 90, 40, 8, COLOR_PRIMARY);
   display.drawString("SCHEDULES", 118, 375);
 
-  // Emergency stop
   addTouchArea(210, 360, 100, 40, 3);
-  uint32_t stopColor = emergencyStop ? COLOR_DANGER : 0x8000; // Dark red
+  uint32_t stopColor = emergencyStop ? COLOR_DANGER : 0x8000;
   display.fillRoundRect(210, 360, 100, 40, 8, stopColor);
-  display.setTextColor(COLOR_TEXT);
   display.drawString("E-STOP", 235, 375);
 
-  // Graph button
   addTouchArea(10, 410, 90, 40, 4);
   display.fillRoundRect(10, 410, 90, 40, 8, COLOR_WARNING);
   display.drawString("GRAPH", 30, 425);
 
-  // Settings
   addTouchArea(110, 410, 90, 40, 5);
-  display.fillRoundRect(110, 410, 90, 40, 8, 0x4208); // Purple
+  display.fillRoundRect(110, 410, 90, 40, 8, 0x4208);
   display.drawString("SETTINGS", 120, 425);
 
-  // Reset (if emergency)
   if (emergencyStop)
   {
     addTouchArea(210, 410, 100, 40, 6);
@@ -616,10 +741,13 @@ void drawScheduleProgress(int x, int y)
   display.fillRoundRect(x, y, 300, 50, 8, COLOR_CARD);
   display.setFont(&fonts::Font2);
   display.setTextColor(COLOR_TEXT);
-  display.drawString("SCHEDULE: " + currentSchedule.name, x + 10, y + 5);
 
-  char segmentInfo[50];
-  snprintf(segmentInfo, sizeof(segmentInfo), "Segment %d/%d: %.0f°C",
+  char nameStr[30];
+  snprintf(nameStr, sizeof(nameStr), "SCHEDULE: %s", currentSchedule.name);
+  display.drawString(nameStr, x + 10, y + 5);
+
+  char segmentInfo[30];
+  snprintf(segmentInfo, sizeof(segmentInfo), "Segment %d/%d: %.0f C",
            currentSchedule.currentSegment + 1, currentSchedule.segmentCount,
            currentSchedule.segments[currentSchedule.currentSegment].targetTemp);
 
@@ -638,9 +766,11 @@ void addTouchArea(int x, int y, int w, int h, int id)
 
 void handleTouch()
 {
+  static unsigned long lastTouch = 0;
   lgfx::touch_point_t tp;
-  if (display.getTouch(&tp) && tp.size > 0)
+  if (display.getTouch(&tp) && tp.size > 0 && millis() - lastTouch > 200)
   {
+    lastTouch = millis();
     for (int i = 0; i < touchAreaCount; i++)
     {
       TouchArea &area = touchAreas[i];
@@ -648,7 +778,6 @@ void handleTouch()
           tp.y >= area.y && tp.y <= area.y + area.h)
       {
         handleTouchAction(area.id);
-        delay(200); // Simple debounce
         break;
       }
     }
@@ -673,6 +802,7 @@ void handleTouchAction(int actionId)
     case 3:
       emergencyStop = true;
       systemEnabled = false;
+      drawMainScreen();
       break;
     case 4:
       currentScreen = SCREEN_GRAPH;
@@ -684,11 +814,13 @@ void handleTouchAction(int actionId)
       break;
     case 6:
       if (!systemEnabled)
+      {
         emergencyStop = false;
+        drawMainScreen();
+      }
       break;
     }
     break;
-    // Add other screen handlers...
   }
 }
 
@@ -698,50 +830,38 @@ void readTemperatures()
   if (millis() - lastTempUpdate >= TEMP_UPDATE_INTERVAL)
   {
     lastTempUpdate = millis();
-
     if (systemEnabled && !emergencyStop)
     {
       double heatInput = (Output1 / 255.0) * 15.0;
       fakedTemp1 = fakedTemp1 * heatLoss + (heatInput + ambientTemp) * thermalMass;
       fakedTemp2 = fakedTemp2 * heatLoss + (heatInput + ambientTemp) * thermalMass;
-
       fakedTemp1 += random(-20, 20) / 100.0;
       fakedTemp2 += random(-25, 25) / 100.0;
-
-      if (fakedTemp1 < ambientTemp)
-        fakedTemp1 = ambientTemp;
-      if (fakedTemp2 < ambientTemp)
-        fakedTemp2 = ambientTemp;
-      if (fakedTemp1 > 1300)
-        fakedTemp1 = 1300;
-      if (fakedTemp2 > 1300)
-        fakedTemp2 = 1300;
+      fakedTemp1 = max(ambientTemp, min(1300.0, fakedTemp1));
+      fakedTemp2 = max(ambientTemp, min(1300.0, fakedTemp2));
     }
     else
     {
       double coolingRate = 0.995;
       fakedTemp1 = fakedTemp1 * coolingRate + ambientTemp * (1 - coolingRate);
       fakedTemp2 = fakedTemp2 * coolingRate + ambientTemp * (1 - coolingRate);
-
-      if (fakedTemp1 < ambientTemp + 0.1)
-        fakedTemp1 = ambientTemp;
-      if (fakedTemp2 < ambientTemp + 0.1)
-        fakedTemp2 = ambientTemp;
+      fakedTemp1 = max(ambientTemp, fakedTemp1);
+      fakedTemp2 = max(ambientTemp, fakedTemp2);
     }
+    Input1 = fakedTemp1;
+    Input2 = fakedTemp2;
   }
-  Input1 = fakedTemp1;
-  Input2 = fakedTemp2;
 #else
   Input1 = maxsensor1.readThermocoupleTemperature();
   Input2 = maxsensor2.readThermocoupleTemperature();
 
   uint8_t fault1 = maxsensor1.readFault();
   uint8_t fault2 = maxsensor2.readFault();
-
   if (fault1 || fault2)
   {
     emergencyStop = true;
     systemEnabled = false;
+    Serial.printf("Thermocouple fault - MAX1: 0x%02X, MAX2: 0x%02X\n", fault1, fault2);
   }
 #endif
 }
@@ -762,8 +882,7 @@ void logData()
 
 void handleFiringSchedule()
 {
-  // Implementation for firing schedule management
-  // This will control ramp rates, soak times, etc.
+  // Placeholder for firing schedule logic
 }
 
 void performSafetyChecks()
@@ -772,122 +891,231 @@ void performSafetyChecks()
   {
     emergencyStop = true;
     systemEnabled = false;
+    Serial.println("Over-temperature detected");
   }
 
   if (systemEnabled && (millis() - heatingStartTime > MAX_HEATING_TIME))
   {
     emergencyStop = true;
     systemEnabled = false;
+    Serial.println("Max heating time exceeded");
   }
 }
 
 void setupWiFi()
 {
+  Serial.println("Connecting to WiFi...");
   WiFi.begin(ssid, password);
 
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20)
+  while (WiFi.status() != WL_CONNECTED && attempts < 30)
   {
     delay(500);
+    Serial.print(".");
     attempts++;
   }
 
   if (WiFi.status() == WL_CONNECTED)
   {
     wifiConnected = true;
-    Serial.println("WiFi connected: " + WiFi.localIP().toString());
+    Serial.println("\nWiFi connected: " + WiFi.localIP().toString());
+  }
+  else
+  {
+    Serial.println("\nWiFi connection failed");
   }
 }
 
 void setupWebServer()
 {
-  server.serveStatic("/", SPIFFS, "/").setDefaultFile("index.html");
+  Serial.println("Setting up web server...");
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+              Serial.println("Serving / request");
+              unsigned long start = millis();
+              request->send_P(200, "text/html", index_html);
+              Serial.printf("Served / in %lu ms\n", millis() - start);
+            });
 
   server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-    JsonDocument doc;
-    doc["temp1"] = Input1;
-    doc["temp2"] = Input2;
-    doc["avgTemp"] = (Input1 + Input2) / 2.0;
-    doc["setpoint"] = Setpoint;
-    doc["output"] = (Output1 / 255.0) * 100;
-    doc["enabled"] = systemEnabled;
-    doc["emergency"] = emergencyStop;
-    doc["wifi"] = wifiConnected;
-    doc["uptime"] = millis();
-    
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response); });
+              Serial.println("Serving /api/status request");
+              unsigned long start = millis();
+              StaticJsonDocument<200> doc;
+              doc["temp1"] = Input1;
+              doc["temp2"] = Input2;
+              doc["avgTemp"] = (Input1 + Input2) / 2.0;
+              doc["setpoint"] = Setpoint;
+              doc["output"] = (Output1 / 255.0) * 100;
+              doc["enabled"] = systemEnabled;
+              doc["emergency"] = emergencyStop;
+              doc["wifi"] = wifiConnected;
+              doc["uptime"] = millis();
+
+              char response[200];
+              serializeJson(doc, response, sizeof(response));
+              request->send(200, "application/json", response);
+              Serial.printf("Served /api/status in %lu ms\n", millis() - start);
+            });
 
   server.on("/api/data", HTTP_GET, [](AsyncWebServerRequest *request)
             {
-    JsonDocument doc;
-    JsonArray dataArray = doc["data"].to<JsonArray>();
-    
-    // Only return valid data points
-    for (int i = 0; i < validDataCount && i < MAX_DATA_POINTS; i++) {
-      int idx = (dataIndex - validDataCount + i + MAX_DATA_POINTS) % MAX_DATA_POINTS;
-      if (dataLog[idx].timestamp > 0) {
-        JsonObject point = dataArray.add<JsonObject>();
-        point["time"] = dataLog[idx].timestamp;
-        point["temp1"] = dataLog[idx].temp1;
-        point["temp2"] = dataLog[idx].temp2;
-        point["setpoint"] = dataLog[idx].setpoint;
-        point["output"] = dataLog[idx].output;
-      }
-    }
-    
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response); });
+              Serial.println("Serving /api/data request");
+              unsigned long start = millis();
+              StaticJsonDocument<512> doc;
+              JsonArray dataArray = doc["data"].to<JsonArray>();
+              
+              int pointsToSend = min(validDataCount, 25);
+              for (int i = 0; i < pointsToSend; i++) {
+                int idx = (dataIndex - validDataCount + i + MAX_DATA_POINTS) % MAX_DATA_POINTS;
+                if (dataLog[idx].timestamp > 0) {
+                  JsonObject point = dataArray.add<JsonObject>();
+                  point["time"] = dataLog[idx].timestamp;
+                  point["temp1"] = dataLog[idx].temp1;
+                  point["temp2"] = dataLog[idx].temp2;
+                  point["setpoint"] = dataLog[idx].setpoint;
+                  point["output"] = dataLog[idx].output;
+                }
+              }
+              
+              char response[512];
+              serializeJson(doc, response, sizeof(response));
+              request->send(200, "application/json", response);
+              Serial.printf("Served /api/data in %lu ms\n", millis() - start);
+            });
 
-  // Add more API endpoints...
+  server.on("/api/schedule", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
+              Serial.println("Serving /api/schedule request");
+              unsigned long start = millis();
+              StaticJsonDocument<256> doc;
+              if (usingSchedule && currentSchedule.active) {
+                doc["name"] = currentSchedule.name;
+                doc["segmentCount"] = currentSchedule.segmentCount;
+                doc["currentSegment"] = currentSchedule.currentSegment;
+                JsonArray points = doc["points"].to<JsonArray>();
+                unsigned long timeOffset = currentSchedule.segmentStartTime;
+                double prevTemp = 0.0;
+                for (int i = 0; i < currentSchedule.segmentCount; i++) {
+                  FiringSegment &seg = currentSchedule.segments[i];
+                  unsigned long rampTime = (seg.rampRate > 0) ? ((seg.targetTemp - prevTemp) * 3600000.0 / seg.rampRate) : 0;
+                  unsigned long soakTime = seg.soakTime * 60000UL;
+                  JsonObject point1 = points.add<JsonObject>();
+                  point1["time"] = timeOffset;
+                  point1["temp"] = prevTemp;
+                  timeOffset += rampTime;
+                  JsonObject point2 = points.add<JsonObject>();
+                  point2["time"] = timeOffset;
+                  point2["temp"] = seg.targetTemp;
+                  if (seg.soakTime > 0) {
+                    timeOffset += soakTime;
+                    JsonObject point3 = points.add<JsonObject>();
+                    point3["time"] = timeOffset;
+                    point3["temp"] = seg.targetTemp;
+                  }
+                  prevTemp = seg.targetTemp;
+                }
+              } else {
+                doc["name"] = "None";
+                doc["segmentCount"] = 0;
+                doc["currentSegment"] = 0;
+                doc["points"] = JsonArray();
+              }
+              
+              char response[256];
+              serializeJson(doc, response, sizeof(response));
+              request->send(200, "application/json", response);
+              Serial.printf("Served /api/schedule in %lu ms\n", millis() - start);
+            });
+
   server.on("/api/setpoint", HTTP_POST, [](AsyncWebServerRequest *request)
             {
-  if (request->hasParam("value", true)) {
-    double newSetpoint = request->getParam("value", true)->value().toDouble();
-    if (!systemEnabled && newSetpoint >= MIN_TEMPERATURE && newSetpoint <= MAX_TEMPERATURE) {
-      Setpoint = newSetpoint;
-      request->send(200, "text/plain", "OK");
-    } else {
-      request->send(400, "text/plain", "Invalid setpoint or system running");
-    }
-  } else {
-    request->send(400, "text/plain", "Missing value parameter");
-  } });
+              Serial.println("Serving /api/setpoint request");
+              unsigned long start = millis();
+              double newSetpoint = -1;
+              if (request->hasParam("value", true)) {
+                Serial.println("Found 'value' in POST body");
+                newSetpoint = request->getParam("value", true)->value().toDouble();
+              } else if (request->hasParam("setpoint", true)) {
+                Serial.println("Found 'setpoint' in POST body");
+                newSetpoint = request->getParam("setpoint", true)->value().toDouble();
+              } else if (request->hasParam("value")) {
+                Serial.println("Found 'value' in query params");
+                newSetpoint = request->getParam("value")->value().toDouble();
+              } else if (request->hasParam("setpoint")) {
+                Serial.println("Found 'setpoint' in query params");
+                newSetpoint = request->getParam("setpoint")->value().toDouble();
+              } else {
+                Serial.println("Missing value or setpoint parameter");
+                request->send(400, "text/plain", "Missing value or setpoint parameter");
+                return;
+              }
+              if (!systemEnabled && newSetpoint >= MIN_TEMPERATURE && newSetpoint <= MAX_TEMPERATURE) {
+                Setpoint = newSetpoint;
+                Serial.printf("Setpoint updated to %.1f\n", newSetpoint);
+                request->send(200, "text/plain", "OK");
+              } else {
+                Serial.println("Invalid setpoint or system running");
+                request->send(400, "text/plain", "Invalid setpoint or system running");
+              }
+              Serial.printf("Served /api/setpoint in %lu ms\n", millis() - start);
+            });
 
   server.on("/api/start", HTTP_POST, [](AsyncWebServerRequest *request)
             {
-  if (!emergencyStop && Setpoint > MIN_TEMPERATURE) {
-    systemEnabled = true;
-    heatingStartTime = millis();
-    request->send(200, "text/plain", "Started");
-  } else {
-    request->send(400, "text/plain", "Cannot start");
-  } });
+              Serial.println("Serving /api/start request");
+              unsigned long start = millis();
+              if (!emergencyStop && Setpoint > MIN_TEMPERATURE) {
+                systemEnabled = true;
+                heatingStartTime = millis();
+                request->send(200, "text/plain", "Started");
+              } else {
+                request->send(400, "text/plain", "Cannot start");
+              }
+              Serial.printf("Served /api/start in %lu ms\n", millis() - start);
+            });
 
   server.on("/api/stop", HTTP_POST, [](AsyncWebServerRequest *request)
             {
-  systemEnabled = false;
-  request->send(200, "text/plain", "Stopped"); });
+              Serial.println("Serving /api/stop request");
+              unsigned long start = millis();
+              systemEnabled = false;
+              request->send(200, "text/plain", "Stopped");
+              Serial.printf("Served /api/stop in %lu ms\n", millis() - start);
+            });
 
   server.on("/api/emergency", HTTP_POST, [](AsyncWebServerRequest *request)
             {
-  emergencyStop = true;
-  systemEnabled = false;
-  request->send(200, "text/plain", "Emergency stop activated"); });
+              Serial.println("Serving /api/emergency request");
+              unsigned long start = millis();
+              emergencyStop = true;
+              systemEnabled = false;
+              request->send(200, "text/plain", "Emergency stop activated");
+              Serial.printf("Served /api/emergency in %lu ms\n", millis() - start);
+            });
 
   server.on("/api/reset", HTTP_POST, [](AsyncWebServerRequest *request)
             {
-  if (!systemEnabled) {
-    emergencyStop = false;
-    request->send(200, "text/plain", "System reset");
-  } else {
-    request->send(400, "text/plain", "Cannot reset while system is running");
-  } });
+              Serial.println("Serving /api/reset request");
+              unsigned long start = millis();
+              if (!systemEnabled) {
+                emergencyStop = false;
+                request->send(200, "text/plain", "System reset");
+              } else {
+                request->send(400, "text/plain", "Cannot reset while system is running");
+              }
+              Serial.printf("Served /api/reset in %lu ms\n", millis() - start);
+            });
+
+  // Fallback to SPIFFS if index.html exists
+  if (SPIFFS.exists("/index.html"))
+  {
+    Serial.println("Serving index.html from SPIFFS");
+    server.serveStatic("/", SPIFFS, "/").setDefaultFile("index.html");
+  }
 
   server.begin();
+  Serial.println("Web server started");
 }
 
 void updateCurrentScreen()
@@ -897,28 +1125,27 @@ void updateCurrentScreen()
   case SCREEN_MAIN:
     drawMainScreen();
     break;
-    // Add other screens...
   }
 }
 
 void drawManualScreen()
 {
-  // Implementation for manual control screen
+  // Placeholder for manual control screen
 }
 
 void drawSchedulesScreen()
 {
-  // Implementation for firing schedules screen
+  // Placeholder for firing schedules screen
 }
 
 void drawGraphScreen()
 {
-  // Implementation for graph screen
+  // Placeholder for graph screen
 }
 
 void drawSettingsScreen()
 {
-  // Implementation for settings screen
+  // Placeholder for settings screen
 }
 
 void displayError(const char *error)
