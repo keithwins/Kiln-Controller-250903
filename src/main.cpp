@@ -1,8 +1,5 @@
 // Uncomment to enable serial debug output (only when Serial Monitor is used)
-// #define ENABLE_SERIAL_DEBUG
-
-// Uncomment the line below if you have an MCP23017 for physical buttons
-// #define USE_MCP23017
+#define ENABLE_SERIAL_DEBUG
 
 #include <Arduino.h>
 #include <Adafruit_MAX31856.h>
@@ -14,12 +11,11 @@
 #include <FS.h>
 #include <SPIFFS.h>
 
-// Display configuration for LovyanGFX
+// Display configuration for LovyanGFX - NO TOUCH
 class LGFX : public lgfx::LGFX_Device
 {
   lgfx::Panel_ST7796 _panel_instance;
   lgfx::Bus_SPI _bus_instance;
-  lgfx::Touch_FT6x36 _touch_instance;
 
 public:
   LGFX(void)
@@ -58,26 +54,11 @@ public:
       _panel_instance.config(cfg);
     }
 
-    {
-      auto cfg = _touch_instance.config();
-      cfg.x_min = 0;
-      cfg.x_max = 320;
-      cfg.y_min = 0;
-      cfg.y_max = 480;
-      cfg.pin_cs = 5;    // Touch CS
-      cfg.pin_int = -1;  // Use pin_int
-      cfg.bus_shared = true;
-      cfg.spi_host = VSPI_HOST;
-      cfg.freq = 2500000;
-      _touch_instance.config(cfg);
-      _panel_instance.setTouch(&_touch_instance);
-    }
-
     setPanel(&_panel_instance);
   }
 };
 
-LGFX display; // Keep only this declaration
+LGFX display;
 
 // Uncomment this line to enable a dry run without the thermocouple
 #define DRY_RUN
@@ -203,16 +184,6 @@ DataPoint dataLog[MAX_DATA_POINTS];
 int dataIndex = 0;
 int validDataCount = 0;
 
-// --- Touch handling ---
-struct TouchArea
-{
-  int x, y, w, h;
-  int id;
-};
-
-TouchArea touchAreas[20];
-int touchAreaCount = 0;
-
 // --- Colors ---
 const uint32_t COLOR_BG = 0x1820;       // Dark blue
 const uint32_t COLOR_CARD = 0x2945;     // Card background
@@ -242,74 +213,101 @@ void checkWiFi();
 void drawMainScreen();
 void readTemperatures();
 void logData();
-void handleTouch();
-void handleFiringSchedule();
 void performSafetyChecks();
 void updateCurrentScreen();
 void drawTemperatureCard(int x, int y, const char *label, double temp, uint32_t color);
 void drawPowerBar(int x, int y);
 void drawStatusArea(int x, int y);
-void drawMainButtons();
-void drawScheduleProgress(int x, int y);
-void addTouchArea(int x, int y, int w, int h, int id);
-void handleTouchAction(int actionId);
-void drawManualScreen();
-void drawSchedulesScreen();
-void drawGraphScreen();
-void drawSettingsScreen();
 
-/*
 void setup()
 {
+#ifdef ENABLE_SERIAL_DEBUG
+  Serial.begin(115200);
+  Serial.println("Kiln Controller Starting...");
+#endif
+
+  // Initialize display first
   display.init();
   display.setRotation(0);
   display.setBrightness(128);
 
-  pinMode(27, OUTPUT); // Backlight
+  // Set backlight pin
+  pinMode(27, OUTPUT);
   digitalWrite(27, HIGH);
 
-  display.fillScreen(TFT_BLACK);
-  display.setFont(&fonts::Font2);
-  display.setTextColor(TFT_WHITE);
-  display.drawString("ST7796S Test", 10, 10);
-  display.drawString("If you see this, it works!", 10, 30);
+#ifdef ENABLE_SERIAL_DEBUG
+  Serial.println("Display initialized");
+#endif
 
-  while (1) delay(1000); // Halt to keep message
-}*/
+  // Draw boot screen
+  drawBootScreen();
+  delay(2000);
 
-void setup()
-{
-  display.init();
-  display.setRotation(0);
-  display.setBrightness(128);
+#ifdef ENABLE_SERIAL_DEBUG
+  Serial.println("Boot screen drawn");
+#endif
 
-  pinMode(27, OUTPUT); // Backlight
-  digitalWrite(27, HIGH);
-
-  display.fillScreen(TFT_BLACK);
-  display.setFont(&fonts::Font2);
-  display.setTextColor(TFT_WHITE);
-  display.drawString("ST7796S Test", 10, 10);
-  display.drawString("If you see this, it works!", 10, 30);
-
-  while (1) delay(1000); // Halt to keep message
-}
-
-void checkMemory()
-{
-  static unsigned long lastCheck = 0;
-  if (millis() - lastCheck >= 10000) {
-    lastCheck = millis();
-    uint32_t freeHeap = ESP.getFreeHeap();
-    uint32_t freePsram = ESP.getFreePsram();
-    // Display on screen instead of Serial
-    char memStr[32];
-    snprintf(memStr, sizeof(memStr), "Heap: %u, PSRAM: %u", freeHeap, freePsram);
-    display.setFont(&fonts::Font2);
-    display.setTextColor(COLOR_TEXT);
-    display.fillRect(10, 460, 300, 20, COLOR_BG);
-    display.drawString(memStr, 10, 460);
+  // Initialize SPIFFS
+  if (!SPIFFS.begin(true)) {
+#ifdef ENABLE_SERIAL_DEBUG
+    Serial.println("SPIFFS Mount Failed");
+#endif
+    displayError("SPIFFS Failed");
+    while(1) delay(1000);
   }
+
+#ifndef DRY_RUN
+  // Initialize thermocouples
+  if (!maxsensor1.begin()) {
+#ifdef ENABLE_SERIAL_DEBUG
+    Serial.println("MAX31856 1 not found");
+#endif
+    displayError("Thermocouple 1 Error");
+    while(1) delay(1000);
+  }
+  
+  if (!maxsensor2.begin()) {
+#ifdef ENABLE_SERIAL_DEBUG
+    Serial.println("MAX31856 2 not found");
+#endif
+    displayError("Thermocouple 2 Error");
+    while(1) delay(1000);
+  }
+
+  // Configure thermocouples
+  maxsensor1.setThermocoupleType(MAX31856_TCTYPE_K);
+  maxsensor2.setThermocoupleType(MAX31856_TCTYPE_K);
+  maxsensor1.setConversionMode(MAX31856_CONTINUOUS);
+  maxsensor2.setConversionMode(MAX31856_CONTINUOUS);
+#endif
+
+  // Initialize PID
+  myPID.SetMode(AUTOMATIC);
+  myPID.SetOutputLimits(0, 255);
+  myPID.SetSampleTime(1000);
+
+  // Initialize SSR pins
+  pinMode(SSR1_PIN, OUTPUT);
+  pinMode(SSR2_PIN, OUTPUT);
+  digitalWrite(SSR1_PIN, LOW);
+  digitalWrite(SSR2_PIN, LOW);
+
+  // Initialize WiFi
+  setupWiFi();
+  setupWebServer();
+
+  // Initialize variables
+  Setpoint = 25.0;
+  Input1 = 25.0;
+  Input2 = 25.0;
+  Output1 = 0;
+
+#ifdef ENABLE_SERIAL_DEBUG
+  Serial.println("Setup complete");
+#endif
+
+  // Draw main screen
+  drawMainScreen();
 }
 
 void loop()
@@ -322,15 +320,6 @@ void loop()
     lastTempRead = currentTime;
     readTemperatures();
     logData();
-  }
-
-  // Handle touch input
-  handleTouch();
-
-  // Handle firing schedule
-  if (usingSchedule && currentSchedule.active)
-  {
-    handleFiringSchedule();
   }
 
   // Safety checks
@@ -366,29 +355,38 @@ void loop()
     checkWiFi();
   }
 
-  checkMemory();
   delay(10);
 }
 
 void setupWiFi()
 {
-  // Configure static IP to reduce DHCP delays
-  IPAddress local_IP(192, 168, 1, 100);
-  IPAddress gateway(192, 168, 1, 1);
-  IPAddress subnet(255, 255, 255, 0);
-  WiFi.config(local_IP, gateway, subnet);
-
+#ifdef ENABLE_SERIAL_DEBUG
+  Serial.println("Connecting to WiFi...");
+#endif
+  
   WiFi.begin(ssid, password);
 
   int attempts = 0;
-  const int maxAttempts = 20; // 10 seconds total
+  const int maxAttempts = 20;
   while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts)
   {
     delay(500);
     attempts++;
+#ifdef ENABLE_SERIAL_DEBUG
+    Serial.print(".");
+#endif
   }
 
   wifiConnected = (WiFi.status() == WL_CONNECTED);
+  
+#ifdef ENABLE_SERIAL_DEBUG
+  if (wifiConnected) {
+    Serial.println("\nWiFi connected!");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\nWiFi connection failed");
+  }
+#endif
 }
 
 void checkWiFi()
@@ -396,31 +394,16 @@ void checkWiFi()
   if (WiFi.status() != WL_CONNECTED)
   {
     wifiConnected = false;
-    WiFi.reconnect();
-    int attempts = 0;
-    const int maxAttempts = 10; // 5 seconds
-    while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts)
-    {
-      delay(500);
-      attempts++;
-    }
-    wifiConnected = (WiFi.status() == WL_CONNECTED);
+  } else {
+    wifiConnected = true;
   }
 }
-
-#include <FS.h>
-#include <SPIFFS.h>
 
 void setupWebServer()
 {
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
             {
               request->send(200, "text/html", "<h1>Kiln Controller</h1><p>Server OK</p>");
-            });
-
-  server.on("/test", HTTP_GET, [](AsyncWebServerRequest *request)
-            {
-              request->send(200, "text/html", "<h1>Test Page</h1><p>Server is running!</p>");
             });
 
   server.begin();
@@ -440,87 +423,48 @@ void drawBootScreen()
   display.setTextColor(COLOR_WARNING);
   display.drawString("** DRY RUN MODE **", 80, 250);
 #endif
+
+#ifdef ENABLE_SERIAL_DEBUG
+  Serial.println("Boot screen should be visible");
+#endif
 }
 
 void drawMainScreen()
 {
-  static double lastInput1 = -999, lastInput2 = -999, lastSetpoint = -999, lastOutput = -999;
-  static bool lastSystemEnabled = false, lastEmergencyStop = false, lastWifiConnected = false;
+#ifdef ENABLE_SERIAL_DEBUG
+  Serial.println("Drawing main screen");
+#endif
 
-  if (lastInput1 == -999)
-  {
-    display.fillScreen(COLOR_BG);
-    touchAreaCount = 0;
+  display.fillScreen(COLOR_BG);
 
-    display.setFont(&fonts::Font4);
-    display.setTextColor(COLOR_TEXT);
-    display.drawString("KILN STATUS", 60, 10);
+  display.setFont(&fonts::Font4);
+  display.setTextColor(COLOR_TEXT);
+  display.drawString("KILN STATUS", 60, 10);
 
-    display.fillRoundRect(10, 60, 140, 60, 8, COLOR_CARD);
-    display.drawRoundRect(10, 60, 140, 60, 8, COLOR_INFO);
-    display.setFont(&fonts::Font2);
-    display.setTextColor(COLOR_TEXT_DIM);
-    display.drawString("TEMP 1", 20, 65);
+  // Temperature cards
+  display.fillRoundRect(10, 60, 140, 60, 8, COLOR_CARD);
+  display.drawRoundRect(10, 60, 140, 60, 8, COLOR_INFO);
+  display.setFont(&fonts::Font2);
+  display.setTextColor(COLOR_TEXT_DIM);
+  display.drawString("TEMP 1", 20, 65);
 
-    display.fillRoundRect(170, 60, 140, 60, 8, COLOR_CARD);
-    display.drawRoundRect(170, 60, 140, 60, 8, COLOR_INFO);
-    display.drawString("TEMP 2", 180, 65);
+  display.fillRoundRect(170, 60, 140, 60, 8, COLOR_CARD);
+  display.drawRoundRect(170, 60, 140, 60, 8, COLOR_INFO);
+  display.drawString("TEMP 2", 180, 65);
 
-    display.fillRoundRect(10, 130, 140, 60, 8, COLOR_CARD);
-    display.drawRoundRect(10, 130, 140, 60, 8, COLOR_PRIMARY);
-    display.drawString("AVERAGE", 20, 135);
+  // Draw temperature values
+  drawTemperatureCard(10, 60, "TEMP 1", Input1, COLOR_INFO);
+  drawTemperatureCard(170, 60, "TEMP 2", Input2, COLOR_INFO);
 
-    display.fillRoundRect(170, 130, 140, 60, 8, COLOR_CARD);
-    display.drawRoundRect(170, 130, 140, 60, 8, COLOR_WARNING);
-    display.drawString("TARGET", 180, 135);
+  // Status area
+  display.setFont(&fonts::Font2);
+  display.setTextColor(COLOR_TEXT);
+  display.drawString("STATUS:", 10, 240);
+  drawStatusArea(10, 240);
 
-    display.setFont(&fonts::Font2);
-    display.setTextColor(COLOR_TEXT);
-    display.drawString("POWER OUTPUT", 10, 180);
-    display.fillRoundRect(10, 200, 300, 25, 4, COLOR_CARD);
-
-    display.drawString("STATUS:", 10, 240);
-    display.drawString("WiFi:", 10, 260);
-
-    drawMainButtons();
-  }
-
-  if (Input1 != lastInput1)
-  {
-    drawTemperatureCard(10, 60, "TEMP 1", Input1, COLOR_INFO);
-    lastInput1 = Input1;
-  }
-  if (Input2 != lastInput2)
-  {
-    drawTemperatureCard(170, 60, "TEMP 2", Input2, COLOR_INFO);
-    lastInput2 = Input2;
-  }
-  if (Input1 != lastInput1 || Input2 != lastInput2)
-  {
-    drawTemperatureCard(10, 130, "AVERAGE", (Input1 + Input2) / 2.0, COLOR_PRIMARY);
-  }
-  if (Setpoint != lastSetpoint)
-  {
-    drawTemperatureCard(170, 130, "TARGET", Setpoint, COLOR_WARNING);
-    lastSetpoint = Setpoint;
-  }
-  if (Output1 != lastOutput)
-  {
-    drawPowerBar(10, 200);
-    lastOutput = Output1;
-  }
-  if (systemEnabled != lastSystemEnabled || emergencyStop != lastEmergencyStop || wifiConnected != lastWifiConnected)
-  {
-    drawStatusArea(10, 240);
-    lastSystemEnabled = systemEnabled;
-    lastEmergencyStop = emergencyStop;
-    lastWifiConnected = wifiConnected;
-  }
-
-  if (usingSchedule && currentSchedule.active)
-  {
-    drawScheduleProgress(10, 300);
-  }
+  display.drawString("WiFi:", 10, 260);
+  display.setTextColor(wifiConnected ? COLOR_PRIMARY : COLOR_DANGER);
+  display.drawString(wifiConnected ? "Connected" : "Disconnected", 50, 260);
 }
 
 void drawTemperatureCard(int x, int y, const char *label, double temp, uint32_t color)
@@ -554,7 +498,6 @@ void drawPowerBar(int x, int y)
   char percentStr[6];
   snprintf(percentStr, sizeof(percentStr), "%.0f%%", (Output1 / 255.0) * 100);
   display.setTextColor(COLOR_TEXT);
-  display.fillRect(x + barWidth + 10, y + 5, 50, 20, COLOR_BG);
   display.drawString(percentStr, x + barWidth + 10, y + 5);
 }
 
@@ -581,157 +524,7 @@ void drawStatusArea(int x, int y)
 
   display.setFont(&fonts::Font2);
   display.setTextColor(statusColor);
-  display.fillRect(x + 80, y, 200, 20, COLOR_BG);
   display.drawString(statusText, x + 80, y);
-
-  display.setTextColor(wifiConnected ? COLOR_PRIMARY : COLOR_DANGER);
-  display.fillRect(x + 50, y + 20, 100, 20, COLOR_BG);
-  display.drawString(wifiConnected ? "Connected" : "Disconnected", x + 50, y + 20);
-}
-
-void drawMainButtons()
-{
-  display.setFont(&fonts::Font2);
-  display.setTextColor(COLOR_TEXT);
-
-  addTouchArea(10, 360, 90, 40, 1);
-  display.fillRoundRect(10, 360, 90, 40, 8, COLOR_INFO);
-  display.drawString("MANUAL", 25, 375);
-
-  addTouchArea(110, 360, 90, 40, 2);
-  display.fillRoundRect(110, 360, 90, 40, 8, COLOR_PRIMARY);
-  display.drawString("SCHEDULES", 118, 375);
-
-  addTouchArea(210, 360, 100, 40, 3);
-  uint32_t stopColor = emergencyStop ? COLOR_DANGER : 0x8000;
-  display.fillRoundRect(210, 360, 100, 40, 8, stopColor);
-  display.drawString("E-STOP", 235, 375);
-
-  addTouchArea(10, 410, 90, 40, 4);
-  display.fillRoundRect(10, 410, 90, 40, 8, COLOR_WARNING);
-  display.drawString("GRAPH", 30, 425);
-
-  addTouchArea(110, 410, 90, 40, 5);
-  display.fillRoundRect(110, 410, 90, 40, 8, 0x4208);
-  display.drawString("SETTINGS", 120, 425);
-
-  if (emergencyStop)
-  {
-    addTouchArea(210, 410, 100, 40, 6);
-    display.fillRoundRect(210, 410, 100, 40, 8, COLOR_PRIMARY);
-    display.drawString("RESET", 240, 425);
-  }
-}
-
-void drawScheduleProgress(int x, int y)
-{
-  display.fillRoundRect(x, y, 300, 50, 8, COLOR_CARD);
-  display.setFont(&fonts::Font2);
-  display.setTextColor(COLOR_TEXT);
-
-  char nameStr[30];
-  snprintf(nameStr, sizeof(nameStr), "SCHEDULE: %s", currentSchedule.name);
-  display.drawString(nameStr, x + 10, y + 5);
-
-  char segmentInfo[30];
-  snprintf(segmentInfo, sizeof(segmentInfo), "Segment %d/%d: %.0f C",
-           currentSchedule.currentSegment + 1, currentSchedule.segmentCount,
-           currentSchedule.segments[currentSchedule.currentSegment].targetTemp);
-
-  display.setTextColor(COLOR_TEXT_DIM);
-  display.drawString(segmentInfo, x + 10, y + 25);
-}
-
-void addTouchArea(int x, int y, int w, int h, int id)
-{
-  if (touchAreaCount < 20)
-  {
-    touchAreas[touchAreaCount] = {x, y, w, h, id};
-    touchAreaCount++;
-  }
-}
-
-void handleTouch()
-{
-  static unsigned long lastTouch = 0;
-  lgfx::touch_point_t tp;
-  if (display.getTouch(&tp) && tp.size > 0 && millis() - lastTouch > 200)
-  {
-    lastTouch = millis();
-    for (int i = 0; i < touchAreaCount; i++)
-    {
-      TouchArea &area = touchAreas[i];
-      if (tp.x >= area.x && tp.x <= area.x + area.w &&
-          tp.y >= area.y && tp.y <= area.y + area.h)
-      {
-        handleTouchAction(area.id);
-        break;
-      }
-    }
-  }
-}
-
-void handleTouchAction(int actionId)
-{
-  switch (currentScreen)
-  {
-  case SCREEN_MAIN:
-    switch (actionId)
-    {
-    case 1:
-      currentScreen = SCREEN_MANUAL;
-      drawManualScreen();
-      break;
-    case 2:
-      currentScreen = SCREEN_SCHEDULES;
-      drawSchedulesScreen();
-      break;
-    case 3:
-      emergencyStop = true;
-      systemEnabled = false;
-      drawMainScreen();
-      break;
-    case 4:
-      currentScreen = SCREEN_GRAPH;
-      drawGraphScreen();
-      break;
-    case 5:
-      currentScreen = SCREEN_SETTINGS;
-      drawSettingsScreen();
-      break;
-    case 6:
-      if (!systemEnabled)
-      {
-        emergencyStop = false;
-        drawMainScreen();
-      }
-      break;
-    }
-    break;
-  case SCREEN_SCHEDULES:
-    if (actionId >= 1 && actionId <= 3 && !systemEnabled)
-    {
-      currentSchedule = presetSchedules[actionId - 1];
-      for (int i = 0; i < currentSchedule.segmentCount; i++)
-      {
-        currentSchedule.segments[i].completed = false;
-      }
-      currentSchedule.active = true;
-      currentSchedule.currentSegment = 0;
-      currentSchedule.segmentStartTime = millis();
-      usingSchedule = true;
-      systemEnabled = true;
-      heatingStartTime = millis();
-      currentScreen = SCREEN_MAIN;
-      drawMainScreen();
-    }
-    else if (actionId == 4)
-    {
-      currentScreen = SCREEN_MAIN;
-      drawMainScreen();
-    }
-    break;
-  }
 }
 
 void readTemperatures()
@@ -792,61 +585,6 @@ void logData()
   dataIndex = (dataIndex + 1) % MAX_DATA_POINTS;
 }
 
-void handleFiringSchedule()
-{
-  if (!currentSchedule.active || currentSchedule.currentSegment >= currentSchedule.segmentCount)
-  {
-    currentSchedule.active = false;
-    usingSchedule = false;
-    systemEnabled = false;
-    return;
-  }
-
-  FiringSegment &seg = currentSchedule.segments[currentSchedule.currentSegment];
-  unsigned long elapsed = millis() - currentSchedule.segmentStartTime;
-
-  if (seg.rampRate > 0)
-  {
-    double timeHours = elapsed / 3600000.0;
-    double prevTemp = (currentSchedule.currentSegment == 0) ? 0.0 : currentSchedule.segments[currentSchedule.currentSegment - 1].targetTemp;
-    double targetTemp = prevTemp + seg.rampRate * timeHours;
-    if (targetTemp >= seg.targetTemp)
-    {
-      Setpoint = seg.targetTemp;
-      if (seg.soakTime > 0)
-      {
-        unsigned long soakStart = currentSchedule.segmentStartTime + ((seg.targetTemp - prevTemp) * 3600000.0 / seg.rampRate);
-        if (millis() - soakStart >= seg.soakTime * 60000UL)
-        {
-          seg.completed = true;
-          currentSchedule.currentSegment++;
-          currentSchedule.segmentStartTime = millis();
-        }
-      }
-      else
-      {
-        seg.completed = true;
-        currentSchedule.currentSegment++;
-        currentSchedule.segmentStartTime = millis();
-      }
-    }
-    else
-    {
-      Setpoint = targetTemp;
-    }
-  }
-  else
-  {
-    Setpoint = seg.targetTemp;
-    if (seg.soakTime > 0 && elapsed >= seg.soakTime * 60000UL)
-    {
-      seg.completed = true;
-      currentSchedule.currentSegment++;
-      currentSchedule.segmentStartTime = millis();
-    }
-  }
-}
-
 void performSafetyChecks()
 {
   if (Input1 > MAX_TEMPERATURE || Input2 > MAX_TEMPERATURE)
@@ -870,54 +608,7 @@ void performSafetyChecks()
 
 void updateCurrentScreen()
 {
-  switch (currentScreen)
-  {
-  case SCREEN_MAIN:
-    drawMainScreen();
-    break;
-  }
-}
-
-void drawManualScreen()
-{
-  // Placeholder for manual control screen
-}
-
-void drawSchedulesScreen()
-{
-  display.fillScreen(COLOR_BG);
-  touchAreaCount = 0;
-
-  display.setFont(&fonts::Font4);
-  display.setTextColor(COLOR_TEXT);
-  display.drawString("SCHEDULES", 40, 10);
-
-  display.setFont(&fonts::Font2);
-  for (int i = 0; i < 3; i++)
-  {
-    int y = 80 + i * 60;
-    display.fillRoundRect(10, y, 280, 50, 8, COLOR_CARD);
-    display.drawRoundRect(10, y, 280, 50, 8, COLOR_INFO);
-    display.drawString(presetSchedules[i].name, 20, y + 15);
-    char segments[20];
-    snprintf(segments, sizeof(segments), "%d segments", presetSchedules[i].segmentCount);
-    display.drawString(segments, 20, y + 35);
-    addTouchArea(10, y, 280, 50, i + 1);
-  }
-
-  addTouchArea(10, 410, 90, 40, 4);
-  display.fillRoundRect(10, 410, 90, 40, 8, COLOR_INFO);
-  display.drawString("BACK", 30, 425);
-}
-
-void drawGraphScreen()
-{
-  // Placeholder for graph screen
-}
-
-void drawSettingsScreen()
-{
-  // Placeholder for settings screen
+  drawMainScreen();
 }
 
 void displayError(const char *error)
@@ -928,4 +619,8 @@ void displayError(const char *error)
   display.drawString("ERROR", 100, 100);
   display.setFont(&fonts::Font2);
   display.drawString(error, 50, 150);
+  
+#ifdef ENABLE_SERIAL_DEBUG
+  Serial.printf("ERROR: %s\n", error);
+#endif
 }
