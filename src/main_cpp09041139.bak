@@ -19,7 +19,7 @@ class LGFX : public lgfx::LGFX_Device
 {
   lgfx::Panel_ST7796 _panel_instance;
   lgfx::Bus_SPI _bus_instance;
-  lgfx::Touch_FT6x36 _touch_instance;
+  lgfx::Touch_XPT2046 _touch_instance;
 
 public:
   LGFX(void)
@@ -257,25 +257,6 @@ void drawManualScreen();
 void drawSchedulesScreen();
 void drawGraphScreen();
 void drawSettingsScreen();
-
-/*
-void setup()
-{
-  display.init();
-  display.setRotation(0);
-  display.setBrightness(128);
-
-  pinMode(27, OUTPUT); // Backlight
-  digitalWrite(27, HIGH);
-
-  display.fillScreen(TFT_BLACK);
-  display.setFont(&fonts::Font2);
-  display.setTextColor(TFT_WHITE);
-  display.drawString("ST7796S Test", 10, 10);
-  display.drawString("If you see this, it works!", 10, 30);
-
-  while (1) delay(1000); // Halt to keep message
-}*/
 
 void setup()
 {

@@ -1,864 +1,115 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Kiln Controller Pro</title>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        
-        body {
-            font-family: 'Segoe UI', sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            min-height: 100vh;
-            padding: 10px;
-        }
-        
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 20px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        }
-        
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        
-        .header h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
-        }
-        
-        .status-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 30px;
-        }
-        
-        .status-card {
-            background: rgba(255, 255, 255, 0.15);
-            border-radius: 15px;
-            padding: 20px;
-            text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            transition: transform 0.3s ease;
-        }
-        
-        .status-card:hover {
-            transform: translateY(-2px);
-        }
-        
-        .status-card h3 {
-            font-size: 0.9em;
-            opacity: 0.8;
-            margin-bottom: 10px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        
-        .status-value {
-            font-size: 2.2em;
-            font-weight: bold;
-            margin: 10px 0;
-        }
-        
-        .temp1 { color: #00d4ff; }
-        .temp2 { color: #00ff88; }
-        .avg-temp { color: #ffeb3b; }
-        .setpoint { color: #ff9800; }
-        .output { color: #e91e63; }
-        .status.ready { color: #4caf50; }
-        .status.heating { color: #ff5722; }
-        .status.emergency { color: #f44336; }
-        
-        .controls {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        
-        .control-group {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            padding: 25px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        .control-group h3 {
-            color: #ffeb3b;
-            margin-bottom: 20px;
-            font-size: 1.3em;
-        }
-        
-        .input-group {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 15px;
-        }
-        
-        .input-group input {
-            flex: 1;
-            padding: 12px;
-            border: none;
-            border-radius: 8px;
-            font-size: 1.1em;
-            background: rgba(255, 255, 255, 0.9);
-            color: #333;
-        }
-        
-        .btn {
-            padding: 12px 24px;
-            border: none;
-            border-radius: 8px;
-            font-size: 1em;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .btn:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-        }
-        
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .btn-primary { background: linear-gradient(45deg, #4caf50, #45a049); color: white; }
-        .btn-secondary { background: linear-gradient(45deg, #2196f3, #1976d2); color: white; }
-        .btn-danger { background: linear-gradient(45deg, #f44336, #d32f2f); color: white; }
-        .btn-warning { background: linear-gradient(45deg, #ff9800, #f57c00); color: white; }
-        
-        .schedule-section {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            padding: 25px;
-            margin-bottom: 20px;
-        }
-        
-        .schedule-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 15px;
-            margin-top: 20px;
-        }
-        
-        .schedule-card {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            padding: 20px;
-            border: 2px solid transparent;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
-        .schedule-card:hover {
-            border-color: #4caf50;
-            transform: translateY(-2px);
-        }
-        
-        .schedule-card.active {
-            border-color: #ff9800;
-            background: rgba(255, 152, 0, 0.2);
-        }
-        
-        .schedule-card h4 {
-            color: #4caf50;
-            margin-bottom: 10px;
-        }
-        
-        .schedule-steps {
-            font-size: 0.9em;
-            opacity: 0.8;
-        }
-        
-        .chart-container {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        
-        #temperatureChart {
-            width: 100%;
-            height: 400px;
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 10px;
-        }
-        
-        .connection-status {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 10px 15px;
-            border-radius: 20px;
-            font-weight: bold;
-            z-index: 1000;
-            font-size: 0.9em;
-        }
-        
-        .connected { background: rgba(76, 175, 80, 0.9); }
-        .disconnected { background: rgba(244, 67, 54, 0.9); }
-        
-        .log-container {
-            background: rgba(0, 0, 0, 0.4);
-            border-radius: 10px;
-            height: 200px;
-            overflow-y: auto;
-            padding: 15px;
-            font-family: 'Courier New', monospace;
-            font-size: 0.85em;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        .log-entry {
-            margin: 3px 0;
-            padding: 2px 0;
-        }
-        
-        .log-info { color: #81c784; }
-        .log-warning { color: #ffb74d; }
-        .log-error { color: #e57373; }
-        
-        .tabs {
-            display: flex;
-            margin-bottom: 20px;
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 10px;
-            padding: 5px;
-        }
-        
-        .tab {
-            flex: 1;
-            padding: 12px;
-            text-align: center;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-weight: bold;
-        }
-        
-        .tab.active {
-            background: rgba(255, 255, 255, 0.2);
-            color: #4caf50;
-        }
-        
-        .tab-content {
-            display: none;
-        }
-        
-        .tab-content.active {
-            display: block;
-        }
-        
-        .progress-bar {
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 10px;
-            height: 20px;
-            overflow: hidden;
-            margin: 10px 0;
-        }
-        
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(45deg, #4caf50, #45a049);
-            transition: width 0.5s ease;
-        }
-        
-        @media (max-width: 768px) {
-            .container { padding: 15px; }
-            .status-grid { grid-template-columns: repeat(2, 1fr); }
-            .controls { grid-template-columns: 1fr; }
-            .header h1 { font-size: 2em; }
-            .tabs { flex-wrap: wrap; }
-            .tab { min-width: 120px; }
-        }
-    </style>
+  <title>Kiln Controller</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-    <div class="connection-status" id="connectionStatus">Connecting...</div>
-    
-    <div class="container">
-        <div class="header">
-            <h1>🔥 Kiln Controller Pro</h1>
-            <p>Advanced Ceramic Firing System</p>
-        </div>
-        
-        <div class="status-grid">
-            <div class="status-card">
-                <h3>Temperature 1</h3>
-                <div class="status-value temp1" id="temp1">--°C</div>
-            </div>
-            <div class="status-card">
-                <h3>Temperature 2</h3>
-                <div class="status-value temp2" id="temp2">--°C</div>
-            </div>
-            <div class="status-card">
-                <h3>Average Temp</h3>
-                <div class="status-value avg-temp" id="avgTemp">--°C</div>
-            </div>
-            <div class="status-card">
-                <h3>Target Temp</h3>
-                <div class="status-value setpoint" id="setpointDisplay">--°C</div>
-            </div>
-            <div class="status-card">
-                <h3>Power Output</h3>
-                <div class="status-value output" id="output">--%</div>
-            </div>
-            <div class="status-card">
-                <h3>System Status</h3>
-                <div class="status-value status" id="status">--</div>
-            </div>
-        </div>
-        
-        <div class="tabs">
-            <div class="tab active" onclick="showTab('manual')">Manual Control</div>
-            <div class="tab" onclick="showTab('schedules')">Firing Schedules</div>
-            <div class="tab" onclick="showTab('monitor')">Monitoring</div>
-            <div class="tab" onclick="showTab('settings')">Settings</div>
-        </div>
-        
-        <!-- Manual Control Tab -->
-        <div id="manual" class="tab-content active">
-            <div class="controls">
-                <div class="control-group">
-                    <h3>🎯 Temperature Control</h3>
-                    <div class="input-group">
-                        <input type="number" id="setpointInput" placeholder="Target Temperature (°C)" 
-                               min="0" max="1200" step="10">
-                        <button class="btn btn-secondary" onclick="setSetpoint()">Set Target</button>
-                    </div>
-                    <div class="input-group">
-                        <button class="btn btn-primary" id="startBtn" onclick="startHeating()">Start Heating</button>
-                        <button class="btn btn-warning" onclick="stopHeating()">Stop Heating</button>
-                    </div>
-                </div>
-                
-                <div class="control-group">
-                    <h3>🚨 Emergency Controls</h3>
-                    <button class="btn btn-danger" onclick="emergencyStop()" style="width: 100%; margin-bottom: 10px;">
-                        🚨 EMERGENCY STOP
-                    </button>
-                    <button class="btn btn-secondary" onclick="resetSystem()" id="resetBtn">Reset System</button>
-                    <div style="margin-top: 15px; font-size: 0.9em; opacity: 0.8;">
-                        <strong>System Info:</strong><br>
-                        WiFi: <span id="wifiStatus">--</span><br>
-                        Uptime: <span id="uptime">--</span><br>
-                        Last Update: <span id="lastUpdate">--</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Firing Schedules Tab -->
-        <div id="schedules" class="tab-content">
-            <div class="schedule-section">
-                <h3>🔥 Firing Schedules</h3>
-                <p>Select a predefined firing schedule for automatic temperature control:</p>
-                
-                <div class="schedule-grid">
-                    <div class="schedule-card" onclick="selectSchedule('bisque')">
-                        <h4>Bisque Fire</h4>
-                        <div class="schedule-steps">
-                            • Warm to 200°C (50°C/hr) - Hold 30min<br>
-                            • Ramp to 500°C (100°C/hr) - Hold 60min<br>
-                            • Final to 950°C (150°C/hr) - Hold 20min
-                        </div>
-                    </div>
-                    
-                    <div class="schedule-card" onclick="selectSchedule('glaze')">
-                        <h4>Glaze Fire</h4>
-                        <div class="schedule-steps">
-                            • Fast to 300°C (100°C/hr)<br>
-                            • Steady to 600°C (80°C/hr)<br>
-                            • Careful to 1000°C (60°C/hr)<br>
-                            • Final to 1240°C (30°C/hr) - Hold 15min
-                        </div>
-                    </div>
-                    
-                    <div class="schedule-card" onclick="selectSchedule('test')">
-                        <h4>Test Fire</h4>
-                        <div class="schedule-steps">
-                            • Gentle to 100°C (60°C/hr) - Hold 5min<br>
-                            • Continue to 200°C (120°C/hr) - Hold 10min<br>
-                            • Safe for testing glazes and clay
-                        </div>
-                    </div>
-                </div>
-                
-                <div id="selectedSchedule" style="margin-top: 20px; display: none;">
-                    <h4>Selected Schedule: <span id="scheduleName"></span></h4>
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="scheduleProgress" style="width: 0%"></div>
-                    </div>
-                    <p>Current Step: <span id="currentStep">Ready to start</span></p>
-                    <div class="input-group" style="margin-top: 15px;">
-                        <button class="btn btn-primary" onclick="startSchedule()">Start Schedule</button>
-                        <button class="btn btn-warning" onclick="stopSchedule()">Stop Schedule</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Monitoring Tab -->
-        <div id="monitor" class="tab-content">
-            <div class="chart-container">
-                <h3>📊 Temperature History</h3>
-                <canvas id="temperatureChart"></canvas>
-            </div>
-            
-            <div class="control-group">
-                <h3>📝 System Log</h3>
-                <div class="log-container" id="logContainer">
-                    <div class="log-entry log-info">System initialized and ready...</div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Settings Tab -->
-        <div id="settings" class="tab-content">
-            <div class="controls">
-                <div class="control-group">
-                    <h3>⚙️ PID Settings</h3>
-                    <div class="input-group">
-                        <input type="number" id="pidKp" placeholder="Proportional (Kp)" step="0.1">
-                        <input type="number" id="pidKi" placeholder="Integral (Ki)" step="0.1">
-                        <input type="number" id="pidKd" placeholder="Derivative (Kd)" step="0.1">
-                    </div>
-                    <button class="btn btn-secondary">Update PID Values</button>
-                </div>
-                
-                <div class="control-group">
-                    <h3>🛡️ Safety Limits</h3>
-                    <div class="input-group">
-                        <input type="number" id="maxTemp" placeholder="Max Temperature (°C)" max="1300">
-                        <input type="number" id="maxTime" placeholder="Max Heating Time (hours)" max="24">
-                    </div>
-                    <button class="btn btn-secondary">Update Safety Limits</button>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-    <script>
-        let chart;
-        let connected = false;
-        let updateInterval;
-        let selectedScheduleType = null;
-        
-        // Initialize
-        document.addEventListener('DOMContentLoaded', function() {
-            initChart();
-            fetchStatus();
-            
-            updateInterval = setInterval(() => {
-                fetchStatus();
-                updateChart();
-            }, 2000);
-            
-            addLog('Web interface initialized', 'info');
-        });
-        
-        // Tab management
-        function showTab(tabName) {
-            // Hide all tab contents
-            document.querySelectorAll('.tab-content').forEach(content => {
-                content.classList.remove('active');
-            });
-            
-            // Remove active class from all tabs
-            document.querySelectorAll('.tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            
-            // Show selected tab content
-            document.getElementById(tabName).classList.add('active');
-            
-            // Add active class to clicked tab
-            event.target.classList.add('active');
+  <h1>Kiln Controller</h1>
+  <div class="card">
+    <h2>Status</h2>
+    <p>Temp 1: <span id="temp1">-</span>°C</p>
+    <p>Temp 2: <span id="temp2">-</span>°C</p>
+    <p>Average: <span id="avgTemp">-</span>°C</p>
+    <p>Setpoint: <span id="setpoint">-</span>°C</p>
+    <p>Output: <span id="output">-</span>%</p>
+    <p>Status: <span id="status">-</span></p>
+  </div>
+  <div class="card">
+    <h2>Firing Schedule</h2>
+    <p>Schedule: <span id="scheduleName">-</span></p>
+    <p>Segment: <span id="currentSegment">-</span>/<span id="totalSegments">-</span></p>
+    <canvas id="tempChart" width="600" height="300"></canvas>
+  </div>
+  <div class="card">
+    <h2>Control</h2>
+    <input type="number" id="setpointInput" placeholder="Enter setpoint (°C)" step="0.1">
+    <button onclick="setSetpoint()">Set Setpoint</button>
+    <button onclick="start()">Start</button>
+    <button onclick="stop()">Stop</button>
+    <button class="danger" onclick="emergency()">Emergency Stop</button>
+    <button onclick="reset()">Reset</button>
+  </div>
+  <script>
+    let chart;
+    function initChart() {
+      const ctx = document.getElementById('tempChart').getContext('2d');
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          datasets: [
+            { label: 'Temp 1', data: [], borderColor: '#00f', fill: false },
+            { label: 'Temp 2', data: [], borderColor: '#0ff', fill: false },
+            { label: 'Setpoint', data: [], borderColor: '#f00', fill: false },
+            { label: 'Schedule', data: [], borderColor: '#ff0', fill: false, borderDash: [5, 5] }
+          ]
+        },
+        options: {
+          scales: {
+            x: { type: 'linear', title: { display: true, text: 'Time (s)' } },
+            y: { title: { display: true, text: 'Temperature (°C)' }, suggestedMin: 0, suggestedMax: 1300 }
+          }
         }
-        
-        // Initialize temperature chart
-        function initChart() {
-            const ctx = document.getElementById('temperatureChart').getContext('2d');
-            chart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'Temperature 1',
-                        data: [],
-                        borderColor: '#00d4ff',
-                        backgroundColor: 'rgba(0, 212, 255, 0.1)',
-                        tension: 0.4,
-                        fill: false
-                    }, {
-                        label: 'Temperature 2', 
-                        data: [],
-                        borderColor: '#00ff88',
-                        backgroundColor: 'rgba(0, 255, 136, 0.1)',
-                        tension: 0.4,
-                        fill: false
-                    }, {
-                        label: 'Target',
-                        data: [],
-                        borderColor: '#ff9800',
-                        backgroundColor: 'rgba(255, 152, 0, 0.1)',
-                        borderDash: [5, 5],
-                        tension: 0.1,
-                        fill: false
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            labels: { color: '#333' }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            ticks: { color: '#666', maxTicksLimit: 10 },
-                            grid: { color: 'rgba(0,0,0,0.1)' }
-                        },
-                        y: {
-                            ticks: { color: '#666' },
-                            grid: { color: 'rgba(0,0,0,0.1)' },
-                            title: {
-                                display: true,
-                                text: 'Temperature (°C)',
-                                color: '#333'
-                            }
-                        }
-                    },
-                    interaction: {
-                        intersect: false,
-                        mode: 'index'
-                    }
-                }
-            });
-        }
-        
-        // Fetch status with better error handling
-        async function fetchStatus() {
-            try {
-                const response = await fetch('/api/status', {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json'
-                    }
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                
-                const contentType = response.headers.get('content-type');
-                if (!contentType || !contentType.includes('application/json')) {
-                    throw new Error('Response is not JSON');
-                }
-                
-                const data = await response.json();
-                
-                if (!connected) {
-                    connected = true;
-                    document.getElementById('connectionStatus').textContent = 'Connected';
-                    document.getElementById('connectionStatus').className = 'connection-status connected';
-                    addLog('Connected to kiln controller', 'info');
-                }
-                
-                updateDisplay(data);
-                
-            } catch (error) {
-                console.error('Fetch error:', error);
-                if (connected) {
-                    connected = false;
-                    document.getElementById('connectionStatus').textContent = 'Disconnected';
-                    document.getElementById('connectionStatus').className = 'connection-status disconnected';
-                    addLog(`Connection lost: ${error.message}`, 'error');
-                }
-            }
-        }
-        
-        // Update display
-        function updateDisplay(data) {
-            document.getElementById('temp1').textContent = data.temp1.toFixed(1) + '°C';
-            document.getElementById('temp2').textContent = data.temp2.toFixed(1) + '°C';
-            document.getElementById('avgTemp').textContent = data.avgTemp.toFixed(1) + '°C';
-            document.getElementById('setpointDisplay').textContent = data.setpoint.toFixed(1) + '°C';
-            document.getElementById('output').textContent = data.output.toFixed(0) + '%';
-            
-            const statusElement = document.getElementById('status');
-            const startBtn = document.getElementById('startBtn');
-            const resetBtn = document.getElementById('resetBtn');
-            
-            if (data.emergency) {
-                statusElement.textContent = 'EMERGENCY';
-                statusElement.className = 'status-value status emergency';
-                startBtn.disabled = true;
-                resetBtn.disabled = false;
-            } else if (data.enabled) {
-                statusElement.textContent = 'HEATING';
-                statusElement.className = 'status-value status heating';
-                startBtn.disabled = true;
-                resetBtn.disabled = true;
-            } else {
-                statusElement.textContent = 'READY';
-                statusElement.className = 'status-value status ready';
-                startBtn.disabled = false;
-                resetBtn.disabled = true;
-            }
-            
-            document.getElementById('wifiStatus').textContent = data.wifi ? 'Connected' : 'Disconnected';
-            document.getElementById('uptime').textContent = formatUptime(data.uptime);
-            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
-            document.getElementById('setpointInput').value = data.setpoint;
-        }
-        
-        // Update chart with better error handling
-        async function updateChart() {
-            try {
-                const response = await fetch('/api/data', {
-                    headers: { 'Accept': 'application/json' }
-                });
-                
-                if (!response.ok) return;
-                
-                const contentType = response.headers.get('content-type');
-                if (!contentType || !contentType.includes('application/json')) return;
-                
-                const data = await response.json();
-                
-                if (!data.data || !Array.isArray(data.data)) return;
-                
-                const labels = [];
-                const temp1Data = [];
-                const temp2Data = [];
-                const setpointData = [];
-                
-                // Only show last 50 points for performance
-                const recentData = data.data.slice(-50);
-                
-                recentData.forEach(point => {
-                    const time = new Date(point.time);
-                    labels.push(time.toLocaleTimeString());
-                    temp1Data.push(point.temp1);
-                    temp2Data.push(point.temp2);
-                    setpointData.push(point.setpoint);
-                });
-                
-                chart.data.labels = labels;
-                chart.data.datasets[0].data = temp1Data;
-                chart.data.datasets[1].data = temp2Data;
-                chart.data.datasets[2].data = setpointData;
-                chart.update('none');
-                
-            } catch (error) {
-                console.error('Chart update error:', error);
-            }
-        }
-        
-        // Control functions
-        async function setSetpoint() {
-            const value = document.getElementById('setpointInput').value;
-            if (!value || value < 0 || value > 1200) {
-                addLog('Invalid setpoint: must be 0-1200°C', 'warning');
-                return;
-            }
-            
-            try {
-                const response = await fetch('/api/setpoint', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: `value=${value}`
-                });
-                
-                if (response.ok) {
-                    addLog(`Setpoint changed to ${value}°C`, 'info');
-                } else {
-                    const text = await response.text();
-                    addLog(`Failed to set setpoint: ${text}`, 'error');
-                }
-            } catch (error) {
-                addLog(`Error setting setpoint: ${error.message}`, 'error');
-            }
-        }
-        
-        async function startHeating() {
-            try {
-                const response = await fetch('/api/start', { method: 'POST' });
-                const text = await response.text();
-                
-                if (response.ok) {
-                    addLog('🔥 Heating started', 'info');
-                } else {
-                    addLog(`Failed to start: ${text}`, 'error');
-                }
-            } catch (error) {
-                addLog(`Error starting: ${error.message}`, 'error');
-            }
-        }
-        
-        async function stopHeating() {
-            try {
-                const response = await fetch('/api/stop', { method: 'POST' });
-                if (response.ok) {
-                    addLog('⏹️ Heating stopped', 'info');
-                } else {
-                    addLog('Failed to stop heating', 'error');
-                }
-            } catch (error) {
-                addLog(`Error stopping: ${error.message}`, 'error');
-            }
-        }
-        
-        async function emergencyStop() {
-            if (confirm('⚠️ Are you sure you want to trigger an emergency stop?')) {
-                try {
-                    const response = await fetch('/api/emergency', { method: 'POST' });
-                    if (response.ok) {
-                        addLog('🚨 EMERGENCY STOP ACTIVATED', 'error');
-                    } else {
-                        addLog('Failed to activate emergency stop', 'error');
-                    }
-                } catch (error) {
-                    addLog(`Error activating emergency stop: ${error.message}`, 'error');
-                }
-            }
-        }
-        
-        async function resetSystem() {
-            if (confirm('Reset the emergency stop condition?')) {
-                try {
-                    const response = await fetch('/api/reset', { method: 'POST' });
-                    if (response.ok) {
-                        addLog('✅ System reset completed', 'info');
-                    } else {
-                        const text = await response.text();
-                        addLog(`Failed to reset: ${text}`, 'error');
-                    }
-                } catch (error) {
-                    addLog(`Error resetting: ${error.message}`, 'error');
-                }
-            }
-        }
-        
-        // Schedule management
-        function selectSchedule(type) {
-            selectedScheduleType = type;
-            
-            // Remove active class from all cards
-            document.querySelectorAll('.schedule-card').forEach(card => {
-                card.classList.remove('active');
-            });
-            
-            // Add active class to selected card
-            event.target.closest('.schedule-card').classList.add('active');
-            
-            // Show schedule controls
-            const scheduleDiv = document.getElementById('selectedSchedule');
-            const nameSpan = document.getElementById('scheduleName');
-            
-            const scheduleNames = {
-                'bisque': 'Bisque Fire',
-                'glaze': 'Glaze Fire', 
-                'test': 'Test Fire'
-            };
-            
-            nameSpan.textContent = scheduleNames[type];
-            scheduleDiv.style.display = 'block';
-            
-            addLog(`Selected ${scheduleNames[type]} schedule`, 'info');
-        }
-        
-        function startSchedule() {
-            if (!selectedScheduleType) return;
-            
-            addLog(`🚀 Starting ${document.getElementById('scheduleName').textContent}`, 'info');
-            // TODO: Implement schedule API call
-        }
-        
-        function stopSchedule() {
-            addLog('⏹️ Schedule stopped', 'info');
-            // TODO: Implement stop schedule API call
-        }
-        
-        // Utility functions
-        function formatUptime(ms) {
-            const seconds = Math.floor(ms / 1000);
-            const minutes = Math.floor(seconds / 60);
-            const hours = Math.floor(minutes / 60);
-            const days = Math.floor(hours / 24);
-            
-            if (days > 0) return `${days}d ${hours % 24}h`;
-            if (hours > 0) return `${hours}h ${minutes % 60}m`;
-            return `${minutes}m`;
-        }
-        
-        function addLog(message, type = 'info') {
-            const timestamp = new Date().toLocaleTimeString();
-            const logEntry = document.createElement('div');
-            logEntry.className = `log-entry log-${type}`;
-            logEntry.textContent = `[${timestamp}] ${message}`;
-            
-            const container = document.getElementById('logContainer');
-            container.appendChild(logEntry);
-            container.scrollTop = container.scrollHeight;
-            
-            // Keep only last 100 entries
-            while (container.children.length > 100) {
-                container.removeChild(container.firstChild);
-            }
-        }
-        
-        // Handle page visibility
-        document.addEventListener('visibilitychange', function() {
-            if (document.hidden) {
-                clearInterval(updateInterval);
-            } else {
-                updateInterval = setInterval(() => {
-                    fetchStatus();
-                    updateChart();
-                }, 2000);
-            }
-        });
-        
-        // Keyboard shortcuts
-        document.addEventListener('keydown', function(e) {
-            if (e.ctrlKey || e.metaKey) {
-                switch(e.key) {
-                    case 's':
-                        e.preventDefault();
-                        startHeating();
-                        break;
-                    case 'x':
-                        e.preventDefault();
-                        stopHeating();
-                        break;
-                    case 'e':
-                        e.preventDefault();
-                        emergencyStop();
-                        break;
-                }
-            }
-        });
-    </script>
+      });
+    }
+    function updateStatus() {
+      fetch('/api/status').then(res => res.json()).then(data => {
+        document.getElementById('temp1').innerText = data.temp1.toFixed(1);
+        document.getElementById('temp2').innerText = data.temp2.toFixed(1);
+        document.getElementById('avgTemp').innerText = data.avgTemp.toFixed(1);
+        document.getElementById('setpoint').innerText = data.setpoint.toFixed(1);
+        document.getElementById('output').innerText = data.output.toFixed(0);
+        document.getElementById('status').innerText = data.emergency ? 'Emergency Stop' : data.enabled ? 'Heating' : 'Ready';
+      }).catch(err => console.error('Status fetch error:', err));
+    }
+    function updateGraph() {
+      fetch('/api/data').then(res => res.json()).then(data => {
+        const now = Date.now() / 1000;
+        chart.data.datasets[0].data = data.data.map(d => ({ x: (d.time / 1000), y: d.temp1 }));
+        chart.data.datasets[1].data = data.data.map(d => ({ x: (d.time / 1000), y: d.temp2 }));
+        chart.data.datasets[2].data = data.data.map(d => ({ x: (d.time / 1000), y: d.setpoint }));
+        chart.update();
+      }).catch(err => console.error('Data fetch error:', err));
+      fetch('/api/schedule').then(res => res.json()).then(data => {
+        document.getElementById('scheduleName').innerText = data.name || 'None';
+        document.getElementById('currentSegment').innerText = data.currentSegment + 1;
+        document.getElementById('totalSegments').innerText = data.segmentCount;
+        chart.data.datasets[3].data = data.points.map(p => ({ x: p.time / 1000, y: p.temp }));
+        chart.update();
+      }).catch(err => console.error('Schedule fetch error:', err));
+    }
+    function setSetpoint() {
+      const value = document.getElementById('setpointInput').value;
+      fetch('/api/setpoint', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, 
+        body: `value=${value}` 
+      }).then(res => res.text()).then(alert)
+        .catch(err => console.error('Setpoint fetch error:', err));
+    }
+    function start() { 
+      fetch('/api/start', { method: 'POST' }).then(res => res.text()).then(alert)
+        .catch(err => console.error('Start fetch error:', err)); 
+    }
+    function stop() { 
+      fetch('/api/stop', { method: 'POST' }).then(res => res.text()).then(alert)
+        .catch(err => console.error('Stop fetch error:', err)); 
+    }
+    function emergency() { 
+      fetch('/api/emergency', { method: 'POST' }).then(res => res.text()).then(alert)
+        .catch(err => console.error('Emergency fetch error:', err)); 
+    }
+    function reset() { 
+      fetch('/api/reset', { method: 'POST' }).then(res => res.text()).then(alert)
+        .catch(err => console.error('Reset fetch error:', err)); 
+    }
+    initChart();
+    setInterval(updateStatus, 5000);
+    setInterval(updateGraph, 10000);
+    updateStatus();
+    updateGraph();
+  </script>
 </body>
 </html>
