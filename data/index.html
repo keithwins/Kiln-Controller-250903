@@ -1,115 +1,110 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Kiln Controller</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
-  <link rel="stylesheet" href="/style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kiln Controller</title>
+    <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <h1>Kiln Controller</h1>
-  <div class="card">
-    <h2>Status</h2>
-    <p>Temp 1: <span id="temp1">-</span>°C</p>
-    <p>Temp 2: <span id="temp2">-</span>°C</p>
-    <p>Average: <span id="avgTemp">-</span>°C</p>
-    <p>Setpoint: <span id="setpoint">-</span>°C</p>
-    <p>Output: <span id="output">-</span>%</p>
-    <p>Status: <span id="status">-</span></p>
-  </div>
-  <div class="card">
-    <h2>Firing Schedule</h2>
-    <p>Schedule: <span id="scheduleName">-</span></p>
-    <p>Segment: <span id="currentSegment">-</span>/<span id="totalSegments">-</span></p>
-    <canvas id="tempChart" width="600" height="300"></canvas>
-  </div>
-  <div class="card">
-    <h2>Control</h2>
-    <input type="number" id="setpointInput" placeholder="Enter setpoint (°C)" step="0.1">
-    <button onclick="setSetpoint()">Set Setpoint</button>
-    <button onclick="start()">Start</button>
-    <button onclick="stop()">Stop</button>
-    <button class="danger" onclick="emergency()">Emergency Stop</button>
-    <button onclick="reset()">Reset</button>
-  </div>
-  <script>
-    let chart;
-    function initChart() {
-      const ctx = document.getElementById('tempChart').getContext('2d');
-      chart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          datasets: [
-            { label: 'Temp 1', data: [], borderColor: '#00f', fill: false },
-            { label: 'Temp 2', data: [], borderColor: '#0ff', fill: false },
-            { label: 'Setpoint', data: [], borderColor: '#f00', fill: false },
-            { label: 'Schedule', data: [], borderColor: '#ff0', fill: false, borderDash: [5, 5] }
-          ]
-        },
-        options: {
-          scales: {
-            x: { type: 'linear', title: { display: true, text: 'Time (s)' } },
-            y: { title: { display: true, text: 'Temperature (°C)' }, suggestedMin: 0, suggestedMax: 1300 }
-          }
-        }
-      });
-    }
-    function updateStatus() {
-      fetch('/api/status').then(res => res.json()).then(data => {
-        document.getElementById('temp1').innerText = data.temp1.toFixed(1);
-        document.getElementById('temp2').innerText = data.temp2.toFixed(1);
-        document.getElementById('avgTemp').innerText = data.avgTemp.toFixed(1);
-        document.getElementById('setpoint').innerText = data.setpoint.toFixed(1);
-        document.getElementById('output').innerText = data.output.toFixed(0);
-        document.getElementById('status').innerText = data.emergency ? 'Emergency Stop' : data.enabled ? 'Heating' : 'Ready';
-      }).catch(err => console.error('Status fetch error:', err));
-    }
-    function updateGraph() {
-      fetch('/api/data').then(res => res.json()).then(data => {
-        const now = Date.now() / 1000;
-        chart.data.datasets[0].data = data.data.map(d => ({ x: (d.time / 1000), y: d.temp1 }));
-        chart.data.datasets[1].data = data.data.map(d => ({ x: (d.time / 1000), y: d.temp2 }));
-        chart.data.datasets[2].data = data.data.map(d => ({ x: (d.time / 1000), y: d.setpoint }));
-        chart.update();
-      }).catch(err => console.error('Data fetch error:', err));
-      fetch('/api/schedule').then(res => res.json()).then(data => {
-        document.getElementById('scheduleName').innerText = data.name || 'None';
-        document.getElementById('currentSegment').innerText = data.currentSegment + 1;
-        document.getElementById('totalSegments').innerText = data.segmentCount;
-        chart.data.datasets[3].data = data.points.map(p => ({ x: p.time / 1000, y: p.temp }));
-        chart.update();
-      }).catch(err => console.error('Schedule fetch error:', err));
-    }
-    function setSetpoint() {
-      const value = document.getElementById('setpointInput').value;
-      fetch('/api/setpoint', { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, 
-        body: `value=${value}` 
-      }).then(res => res.text()).then(alert)
-        .catch(err => console.error('Setpoint fetch error:', err));
-    }
-    function start() { 
-      fetch('/api/start', { method: 'POST' }).then(res => res.text()).then(alert)
-        .catch(err => console.error('Start fetch error:', err)); 
-    }
-    function stop() { 
-      fetch('/api/stop', { method: 'POST' }).then(res => res.text()).then(alert)
-        .catch(err => console.error('Stop fetch error:', err)); 
-    }
-    function emergency() { 
-      fetch('/api/emergency', { method: 'POST' }).then(res => res.text()).then(alert)
-        .catch(err => console.error('Emergency fetch error:', err)); 
-    }
-    function reset() { 
-      fetch('/api/reset', { method: 'POST' }).then(res => res.text()).then(alert)
-        .catch(err => console.error('Reset fetch error:', err)); 
-    }
-    initChart();
-    setInterval(updateStatus, 5000);
-    setInterval(updateGraph, 10000);
-    updateStatus();
-    updateGraph();
-  </script>
+    <div class="container">
+        <div class="header">
+            <h1>🔥 Kiln Controller</h1>
+            <div class="version" id="version">Loading...</div>
+        </div>
+        
+        <div class="status-grid">
+            <div class="status-card temp1">
+                <h3>Temperature 1</h3>
+                <div class="value" id="temp1">--</div>
+                <div class="unit">°C</div>
+            </div>
+            <div class="status-card temp2">
+                <h3>Temperature 2</h3>
+                <div class="value" id="temp2">--</div>
+                <div class="unit">°C</div>
+            </div>
+            <div class="status-card avg">
+                <h3>Average Temp</h3>
+                <div class="value" id="avgTemp">--</div>
+                <div class="unit">°C</div>
+            </div>
+            <div class="status-card target">
+                <h3>Target Temp</h3>
+                <div class="value" id="setpoint">--</div>
+                <div class="unit">°C</div>
+            </div>
+            <div class="status-card power">
+                <h3>Power Output</h3>
+                <div class="value" id="power">--</div>
+                <div class="unit">%</div>
+            </div>
+            <div class="status-card status">
+                <h3>System Status</h3>
+                <div class="value" id="status">--</div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button class="btn-primary" id="startBtn" onclick="startSystem()">Start System</button>
+            <button class="btn-danger" id="stopBtn" onclick="stopSystem()">Stop System</button>
+            <button class="btn-danger" onclick="emergencyStop()">Emergency Stop</button>
+            <button class="btn-secondary" onclick="resetSystem()">Reset</button>
+        </div>
+        
+        <div class="manual-control">
+            <h2>Manual Control</h2>
+            <div class="input-group">
+                <label>Target Temperature:</label>
+                <input type="number" id="targetTemp" placeholder="°C" min="0" max="1200" step="1">
+                <button class="btn-warning" onclick="setTarget()">Set Target</button>
+            </div>
+        </div>
+        
+        <div class="schedule-section">
+            <h2>Firing Schedules</h2>
+            <div class="schedule-grid" id="scheduleGrid">
+                <!-- Schedules will be loaded dynamically -->
+            </div>
+            <div class="schedule-status" id="scheduleStatus" style="display: none;">
+                <h3>Active Schedule</h3>
+                <div class="schedule-progress">
+                    <div class="schedule-name" id="activScheduleName"></div>
+                    <div class="schedule-segment" id="activeScheduleSegment"></div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="scheduleProgress"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="system-info">
+            <h2>System Information</h2>
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="label">Uptime:</span>
+                    <span class="value" id="uptime">--</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">WiFi:</span>
+                    <span class="value" id="wifiStatus">--</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">Free Heap:</span>
+                    <span class="value" id="memory">--</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="log-section">
+            <h2>Activity Log</h2>
+            <div class="log" id="log">
+                System log will appear here...<br>
+            </div>
+            <button class="btn-secondary" onclick="clearLog()">Clear Log</button>
+        </div>
+    </div>
+
+    <script src="/script.js"></script>
 </body>
 </html>
