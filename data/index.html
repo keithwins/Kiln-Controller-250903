@@ -1,107 +1,178 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kiln Controller</title>
-    <link rel="stylesheet" href="/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kiln Controller</title>
+  <link rel="stylesheet" href="/style.css">
 </head>
+
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🔥 Kiln Controller</h1>
-            <div class="version" id="version">Loading...</div>
-        </div>
-        
-        <div class="status-grid">
-            <div class="status-card temp1">
-                <h3>Temperature 1</h3>
-                <div class="value" id="temp1">--</div>
-                <div class="unit">°C</div>
-            </div>
-            <div class="status-card temp2">
-                <h3>Temperature 2</h3>
-                <div class="value" id="temp2">--</div>
-                <div class="unit">°C</div>
-            </div>
-            <div class="status-card avg">
-                <h3>Average Temp</h3>
-                <div class="value" id="avgTemp">--</div>
-                <div class="unit">°C</div>
-            </div>
-            <div class="status-card target">
-                <h3>Target Temp</h3>
-                <div class="value" id="setpoint">--</div>
-                <div class="unit">°C</div>
-            </div>
-            <div class="status-card power">
-                <h3>Power Output</h3>
-                <div class="value" id="power">--</div>
-                <div class="unit">%</div>
-            </div>
-            <div class="status-card status">
-                <h3>System Status</h3>
-                <div class="value" id="status">--</div>
-            </div>
-        </div>
-        
-        <div class="controls">
-            <button class="btn-primary" id="startBtn" onclick="startSystem()">Start System</button>
-            <button class="btn-danger" id="stopBtn" onclick="stopSystem()">Stop System</button>
-            <button class="btn-danger" onclick="emergencyStop()">Emergency Stop</button>
-            <button class="btn-secondary" onclick="resetSystem()">Reset</button>
-        </div>
-        
-        <div class="manual-control">
-            <h2>Manual Control</h2>
-            <div class="input-group">
-                <label>Target Temperature:</label>
-                <input type="number" id="targetTemp" placeholder="°C" min="0" max="1200" step="1">
-                <button class="btn-warning" onclick="setTarget()">Set Target</button>
-            </div>
-        </div>
-        
-        <div class="schedule-section">
-            <h2>Firing Schedules</h2>
-            <div class="schedule-grid" id="scheduleGrid">
-                <div class="schedule-card" onclick="startSchedule(0)">
-                    <h4>Bisque Fire</h4>
-                    <div class="segments">3 segments • Max: 950°C</div>
-                </div>
-                <div class="schedule-card" onclick="startSchedule(1)">
-                    <h4>Glaze Fire</h4>
-                    <div class="segments">4 segments • Max: 1240°C</div>
-                </div>
-                <div class="schedule-card" onclick="startSchedule(2)">
-                    <h4>Test Fire</h4>
-                    <div class="segments">2 segments • Max: 200°C</div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="system-info">
-            <h2>System Information</h2>
-            <div class="info-grid">
-                <div class="info-item">
-                    <span class="label">Uptime:</span>
-                    <span class="value" id="uptime">--</span>
-                </div>
-                <div class="info-item">
-                    <span class="label">WiFi:</span>
-                    <span class="value" id="wifiStatus">--</span>
-                </div>
-            </div>
-        </div>
-        
-        <div class="log-section">
-            <h2>Activity Log</h2>
-            <div class="log" id="log">
-                System log will appear here...<br>
-            </div>
-            <button class="btn-secondary" onclick="clearLog()">Clear Log</button>
-        </div>
+  <div class="container">
+    <div class="header">
+      <h1>🔥 Kiln Controller</h1>
+      <div class="version" id="version">Loading...</div>
     </div>
 
-    <script src="/script.js"></script>
+    <div class="status-grid">
+      <div class="status-card temp1">
+        <h3>Temperature 1</h3>
+        <div class="value" id="temp1">--</div>
+        <div class="unit">°C</div>
+      </div>
+      <div class="status-card temp2">
+        <h3>Temperature 2</h3>
+        <div class="value" id="temp2">--</div>
+        <div class="unit">°C</div>
+      </div>
+      <div class="status-card avg">
+        <h3>Average Temp</h3>
+        <div class="value" id="avgTemp">--</div>
+        <div class="unit">°C</div>
+      </div>
+      <div class="status-card target">
+        <h3>Target Temp</h3>
+        <div class="value" id="setpoint">--</div>
+        <div class="unit">°C</div>
+      </div>
+      <div class="status-card power">
+        <h3>Power Output</h3>
+        <div class="value" id="power">--</div>
+        <div class="unit">%</div>
+      </div>
+      <div class="status-card status">
+        <h3>System Status</h3>
+        <div class="value" id="status">--</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="btn-primary" id="startBtn" onclick="startSystem()">Start System</button>
+      <button class="btn-danger" id="stopBtn" onclick="stopSystem()">Stop System</button>
+      <button class="btn-danger" onclick="emergencyStop()">Emergency Stop</button>
+      <button class="btn-secondary" onclick="resetSystem()">Reset</button>
+    </div>
+
+    <!-- Simple Temperature Graph -->
+    <div class="graph-section">
+      <h2>Temperature History</h2>
+      <div class="graph-container">
+        <svg id="temperatureGraph" viewBox="0 0 800 300" preserveAspectRatio="xMidYMid meet">
+          <!-- Background -->
+          <rect width="800" height="300" fill="rgba(0,0,0,0.2)" rx="5" />
+
+          <!-- Grid lines -->
+          <g stroke="rgba(255,255,255,0.1)" stroke-width="1">
+            <!-- Horizontal grid lines -->
+            <line x1="50" y1="50" x2="750" y2="50" />
+            <line x1="50" y1="100" x2="750" y2="100" />
+            <line x1="50" y1="150" x2="750" y2="150" />
+            <line x1="50" y1="200" x2="750" y2="200" />
+            <line x1="50" y1="250" x2="750" y2="250" />
+            <!-- Vertical grid lines -->
+            <line x1="50" y1="50" x2="50" y2="250" />
+            <line x1="200" y1="50" x2="200" y2="250" />
+            <line x1="350" y1="50" x2="350" y2="250" />
+            <line x1="500" y1="50" x2="500" y2="250" />
+            <line x1="650" y1="50" x2="650" y2="250" />
+            <line x1="750" y1="50" x2="750" y2="250" />
+          </g>
+
+          <!-- Y-axis labels -->
+          <g fill="rgba(255,255,255,0.7)" font-size="12" text-anchor="end" font-family="monospace">
+            <text x="45" y="55">1000°C</text>
+            <text x="45" y="105">800°C</text>
+            <text x="45" y="155">600°C</text>
+            <text x="45" y="205">400°C</text>
+            <text x="45" y="255">200°C</text>
+          </g>
+
+          <!-- X-axis labels -->
+          <g fill="rgba(255,255,255,0.7)" font-size="10" text-anchor="middle" font-family="monospace">
+            <text x="50" y="275">Now</text>
+            <text x="200" y="275">-5min</text>
+            <text x="350" y="275">-10min</text>
+            <text x="500" y="275">-15min</text>
+            <text x="650" y="275">-20min</text>
+            <text x="750" y="275">-25min</text>
+          </g>
+
+          <!-- Temperature lines (will be updated by JavaScript) -->
+          <g id="tempLines">
+            <polyline id="temp1Line" fill="none" stroke="#00d4ff" stroke-width="2" points="" />
+            <polyline id="temp2Line" fill="none" stroke="#00ff88" stroke-width="2" points="" />
+            <polyline id="targetLine" fill="none" stroke="#ffaa00" stroke-width="3" stroke-dasharray="5,5" points="" />
+          </g>
+
+          <!-- Current values display -->
+          <g id="currentValues" fill="white" font-size="14" font-family="monospace">
+            <text x="60" y="25" id="graphTemp1">T1: --°C</text>
+            <text x="200" y="25" id="graphTemp2">T2: --°C</text>
+            <text x="340" y="25" id="graphTarget">Target: --°C</text>
+            <text x="500" y="25" id="graphPower">Power: --%</text>
+          </g>
+        </svg>
+      </div>
+      <div class="graph-legend">
+        <span style="color: #00d4ff;">● Temperature 1</span>
+        <span style="color: #00ff88;">● Temperature 2</span>
+        <span style="color: #ffaa00;">● Target</span>
+        <button onclick="clearGraph()" class="btn-secondary small">Clear</button>
+      </div>
+    </div>
+
+    <div class="manual-control">
+      <h2>Manual Control</h2>
+      <div class="input-group">
+        <label>Target Temperature:</label>
+        <input type="number" id="targetTemp" placeholder="°C" min="0" max="1200" step="1">
+        <button class="btn-warning" onclick="setTarget()">Set Target</button>
+      </div>
+    </div>
+
+    <div class="schedule-section">
+      <h2>Firing Schedules</h2>
+      <div class="schedule-grid" id="scheduleGrid">
+        <div class="schedule-card" onclick="startSchedule(0)">
+          <h4>Bisque Fire</h4>
+          <div class="segments">3 segments • Max: 950°C</div>
+        </div>
+        <div class="schedule-card" onclick="startSchedule(1)">
+          <h4>Glaze Fire</h4>
+          <div class="segments">4 segments • Max: 1240°C</div>
+        </div>
+        <div class="schedule-card" onclick="startSchedule(2)">
+          <h4>Test Fire</h4>
+          <div class="segments">2 segments • Max: 200°C</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="system-info">
+      <h2>System Information</h2>
+      <div class="info-grid">
+        <div class="info-item">
+          <span class="label">Uptime:</span>
+          <span class="value" id="uptime">--</span>
+        </div>
+        <div class="info-item">
+          <span class="label">WiFi:</span>
+          <span class="value" id="wifiStatus">--</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="log-section">
+      <h2>Activity Log</h2>
+      <div class="log" id="log">
+        System log will appear here...<br>
+      </div>
+      <button class="btn-secondary" onclick="clearLog()">Clear Log</button>
+    </div>
+  </div>
+
+  <script src="/script.js"></script>
 </body>
+
 </html>
