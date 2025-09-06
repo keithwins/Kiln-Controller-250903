@@ -103,6 +103,9 @@ class KilnController {
             this.updateElement('avgTemp', data.avgTemp.toFixed(1));
             this.updateElement('setpoint', data.setpoint.toFixed(1));
             this.updateElement('power', data.power.toFixed(0));
+            if (data.serverTime) {
+                this.updateElement('serverTime', 'Server Time: ' + data.serverTime);
+            }
 
             let status = 'Ready';
             let statusClass = 'info';
@@ -128,7 +131,7 @@ class KilnController {
 
             this.updateElement('uptime', this.formatUptime(data.uptime));
             this.updateElement('wifiStatus', data.wifi ? 'Connected' : 'Disconnected');
-            this.updateElement('version', data.version || 'Unknown');
+            this.updateElement('version', 'Kiln Controller - ' + 'Version 250904');
 
             this.checkForAlerts(data);
             this.updateGraph(data);
@@ -201,7 +204,7 @@ class KilnController {
 
         // Temperature range for scaling
         const minTemp = 0;
-        const maxTemp = 1000;
+        const maxTemp = 1300;
 
         const temp1Points = [];
         const temp2Points = [];
